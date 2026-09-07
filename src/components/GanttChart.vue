@@ -48,35 +48,39 @@
             :sortable="col.sortable"
             :show-overflow-tooltip="col.tooltip"
           >
-            <!-- 使用方可通过 #col-<key> 覆盖任意列（含内置列）的渲染 -->
-            <template v-if="$scopedSlots['col-' + col.key]" slot-scope="scope">
-              <slot :name="'col-' + col.key" v-bind="scope"></slot>
-            </template>
-            <template v-else-if="col.key === 'text'" slot-scope="{ row }">
-              <el-tag v-if="row.type === 'milestone'" size="mini" type="warning">里程碑</el-tag>
-              <span :class="{ 'proj-name': row.type === 'project' }">{{ row.text }}</span>
-            </template>
-            <template v-else-if="col.key === 'progress'" slot-scope="{ row }">
+            <!-- 单个作用域插槽模板 + 内部分支：Vue2 里同名多个 <template slot-scope>
+                 只有第一个生效，不能拆成多个模板做 v-if 链 -->
+            <template slot-scope="scope">
+              <!-- 使用方可通过 #col-<key> 覆盖任意列（含内置列）的渲染 -->
+              <slot
+                v-if="$scopedSlots['col-' + col.key]"
+                :name="'col-' + col.key"
+                v-bind="scope"
+              ></slot>
+              <template v-else-if="col.key === 'text'">
+                <el-tag v-if="scope.row.type === 'milestone'" size="mini" type="warning">里程碑</el-tag>
+                <span :class="{ 'proj-name': scope.row.type === 'project' }">{{ scope.row.text }}</span>
+              </template>
               <el-progress
-                v-if="row.type !== 'milestone'"
-                :percentage="Math.min(100, row.progress || 0)"
+                v-else-if="col.key === 'progress' && scope.row.type !== 'milestone'"
+                :percentage="Math.min(100, scope.row.progress || 0)"
                 :stroke-width="8"
                 :show-text="false"
               />
-              <span v-else>-</span>
-            </template>
-            <template v-else-if="col.key === 'ops'" slot-scope="{ row }">
-              <el-button type="text" size="mini" @click.stop="openEdit(row)">编辑</el-button>
-              <el-button
-                v-if="row.type !== 'milestone'"
-                type="text"
-                size="mini"
-                @click.stop="openCreate(row)"
-              >加子任务</el-button>
-              <el-button type="text" size="mini" class="danger-btn" @click.stop="confirmDelete(row.text, row.id)">删除</el-button>
-            </template>
-            <template v-else slot-scope="{ row }">
-              {{ col.format ? col.format(row) : row[col.key] }}
+              <span v-else-if="col.key === 'progress'">-</span>
+              <template v-else-if="col.key === 'ops'">
+                <el-button type="text" size="mini" @click.stop="openEdit(scope.row)">编辑</el-button>
+                <el-button
+                  v-if="scope.row.type !== 'milestone'"
+                  type="text"
+                  size="mini"
+                  @click.stop="openCreate(scope.row)"
+                >加子任务</el-button>
+                <el-button type="text" size="mini" class="danger-btn" @click.stop="confirmDelete(scope.row.text, scope.row.id)">删除</el-button>
+              </template>
+              <template v-else>
+                {{ col.format ? col.format(scope.row) : scope.row[col.key] }}
+              </template>
             </template>
           </el-table-column>
         </el-table>
