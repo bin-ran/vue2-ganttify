@@ -1,0 +1,25 @@
+{
+  "name": "dhtmlx-gantt-vue2-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DHTMLX Gantt 社区版(MIT) × Vue 2.6.14 集成示例",
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build"
+  },
+  "dependencies": {
+    "core-js": "^3.8.3",
+    "dhtmlx-gantt": "^10.0.3",
+    "vue": "2.6.14"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "~5.0.8",
+    "@vue/cli-service": "~5.0.8",
+    "vue-template-compiler": "2.6.14"
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ]
+}
