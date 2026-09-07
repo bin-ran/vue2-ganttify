@@ -22,7 +22,7 @@
 
     <div class="work-area">
       <!-- 左：ElementUI 树形表格（替代 gantt 自带 grid） -->
-      <div class="gantt-table">
+      <div class="gantt-table" :style="{ width: tableWidth + 'px' }">
         <el-table
           ref="ganttTable"
           :data="tableData"
@@ -69,6 +69,14 @@
           </el-table-column>
         </el-table>
       </div>
+
+      <!-- 拖拽分割条：调整左侧表格宽度（双击恢复默认） -->
+      <div
+        class="gantt-resizer"
+        title="拖动调整表格宽度，双击恢复默认"
+        @mousedown="onResizerMousedown"
+        @dblclick="resetResizer"
+      ></div>
 
       <!-- 右：dhtmlx 只渲染时间轴（自定义 layout 隐藏自带 grid） -->
       <div ref="ganttEl" class="gantt-timeline"></div>
@@ -119,6 +127,9 @@ export default {
       tableData: [],
       expandedIds: [],
       selectedId: null,
+      // 左侧表格宽度（拖拽分割条可调）
+      tableWidth: 640,
+      resizing: false,
       dialog: { visible: false, mode: 'create', task: null, parentName: '' }
     }
   },
@@ -138,6 +149,8 @@ export default {
     this._delConfirm = false
     this._tableInited = false
     this.nodeMap = {}
+    this._raf = null
+    this._scrollLock = null
   },
 
   mounted() {
@@ -150,7 +163,10 @@ export default {
   },
 
   beforeDestroy() {
-    // 移除表格滚动监听 + 销毁 gantt 实例（防止二次进入实例残留）
+    // 移除拖拽/滚动监听 + 销毁 gantt 实例（防止二次进入实例残留）
+    this.teardownResizer()
+    if (this._raf) cancelAnimationFrame(this._raf)
+    clearTimeout(this._scrollLockTimer)
     if (this._tableScrollEl) {
       this._tableScrollEl.removeEventListener('scroll', this._onTableScroll)
       this._tableScrollEl = null
@@ -375,9 +391,15 @@ export default {
       })
 
       // ---- 纵向滚动同步：gantt → el-table ----
+      // 注意：dhtmlx 的 scrollTo 过程中会发出“过期中间值”的 onGanttScroll 事件，
+      // 直接双向同步会乒乓打架（实测两边互相拉扯最后停在 0），必须加滚动锁：
+      // 一方发起同步后 50ms 内抑制另一方的回传。
       g.attachEvent('onGanttScroll', (left, top) => {
+        if (this._scrollLock === 'table') return true
+        this._scrollLock = 'gantt'
         const w = this.getTableScrollEl()
         if (w && Math.abs(w.scrollTop - top) > 1) w.scrollTop = top
+        this.refreshScrollLock()
         return true
       })
 
@@ -385,19 +407,73 @@ export default {
       const wrapper = this.getTableScrollEl()
       if (wrapper) {
         this._onTableScroll = (e) => {
+          if (this._scrollLock === 'gantt') return
+          this._scrollLock = 'table'
           const st = g.getScrollState()
           if (Math.abs((st.y || 0) - e.target.scrollTop) > 1) {
             g.scrollTo(st.x, e.target.scrollTop)
           }
+          this.refreshScrollLock()
         }
         wrapper.addEventListener('scroll', this._onTableScroll)
         this._tableScrollEl = wrapper
       }
     },
 
+    /** 滚动锁：50ms 内抑制反向回传，避免两侧行高/钳位差异引发乒乓 */
+    refreshScrollLock() {
+      clearTimeout(this._scrollLockTimer)
+      this._scrollLockTimer = setTimeout(() => {
+        this._scrollLock = null
+      }, 50)
+    },
+
     getTableScrollEl() {
       const table = this.$refs.ganttTable
       return table && table.$el ? table.$el.querySelector('.el-table__body-wrapper') : null
+    },
+
+    // ---------- 分割条拖拽：调整表格/时间轴宽度比例 ----------
+    onResizerMousedown(e) {
+      e.preventDefault()
+      this._dragStartX = e.clientX
+      this._dragStartW = this.tableWidth
+      this.resizing = true
+      // 拖拽期间禁用两块区域的鼠标事件：避免光标划过 gantt 内部 iframe 时丢失 mousemove
+      document.addEventListener('mousemove', this.onResizerMove)
+      document.addEventListener('mouseup', this.onResizerMouseup)
+    },
+
+    onResizerMove(e) {
+      const rect = this.$el.getBoundingClientRect()
+      // 左侧最小 420，右侧至少留 420 给时间轴
+      const max = rect.width - 420
+      const next = this._dragStartW + (e.clientX - this._dragStartX)
+      this.tableWidth = Math.min(max, Math.max(420, Math.round(next)))
+      // rAF 节流：拖动过程中让 gantt 重排（时间轴宽度变化）
+      if (!this._raf) {
+        this._raf = requestAnimationFrame(() => {
+          this._raf = null
+          if (this.gantt) this.gantt.setSizes()
+        })
+      }
+    },
+
+    onResizerMouseup() {
+      this.resizing = false
+      this.teardownResizer()
+      if (this.gantt) this.gantt.setSizes()
+      this.emitEvent('resizer-change', `表格宽度调整为 ${this.tableWidth}px`, { tableWidth: this.tableWidth })
+    },
+
+    resetResizer() {
+      this.tableWidth = 640
+      if (this.gantt) this.gantt.setSizes()
+    },
+
+    teardownResizer() {
+      document.removeEventListener('mousemove', this.onResizerMove)
+      document.removeEventListener('mouseup', this.onResizerMouseup)
     },
 
     // ---------- 工具栏 ----------
@@ -451,10 +527,19 @@ export default {
       this.emitEvent('row-click', `选中任务：「${row.text}」`, row)
     },
 
-    onExpandChange(row, expandedRows) {
-      this.expandedIds = expandedRows.map((r) => r.id)
+    onExpandChange(row, expanded) {
+      // 注意：树形表格 expand-change 的第二参是“该行是否展开”的布尔值；
+      // 普通展开行表格才是展开行数组。两种形态都兼容。
+      const isExpand = Array.isArray(expanded)
+        ? expanded.some((r) => r.id === row.id)
+        : !!expanded
+      if (isExpand) {
+        if (this.expandedIds.indexOf(row.id) === -1) this.expandedIds.push(row.id)
+      } else {
+        this.expandedIds = this.expandedIds.filter((id) => id !== row.id)
+      }
       // 表格展开/收起 → 同步 gantt 的折叠状态（影响时间轴上子任务条的显示）
-      if (expandedRows.some((r) => r.id === row.id)) {
+      if (isExpand) {
         this.gantt.open(row.id)
       } else {
         this.gantt.close(row.id)
@@ -559,24 +644,54 @@ export default {
 }
 
 .gantt-table {
-  width: 640px;
   flex: none;
   min-height: 0;
-  border-right: none;
 }
 .gantt-timeline {
   flex: 1;
   min-width: 0;
 }
 
-/* 表格行高与 gantt row_height(36px) 严格对齐，纵向滚动同步才不错位 */
+/* 拖拽分割条：调整表格/时间轴宽度比例 */
+.gantt-resizer {
+  flex: none;
+  width: 5px;
+  cursor: col-resize;
+  background: #ececec;
+  transition: background 0.15s;
+}
+.gantt-resizer:hover,
+.gantt-wrapper.resizing .gantt-resizer {
+  background: #3f8cff;
+}
+/* 拖拽期间：禁用文本选中；两块区域 pointer-events 置空，
+   防止光标划过 gantt 内部 iframe（resize watcher）时 mousemove 丢失 */
+.gantt-wrapper.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+.gantt-wrapper.resizing .gantt-table,
+.gantt-wrapper.resizing .gantt-timeline {
+  pointer-events: none;
+}
+
+/* 表头高度对齐 gantt 刻度区（scale_height=48） */
+.gantt-table .el-table th {
+  height: 48px;
+  padding: 0;
+  box-sizing: border-box;
+}
+.gantt-table .el-table th > .cell {
+  line-height: 47px; /* 48 - 1px 底边框 */
+}
+
+/* 表格行高与 gantt row_height(36px) 严格对齐：
+   td 默认 content-box，height:36 + 1px 边框会变 37px 逐行漂移，必须 border-box */
 .gantt-table .el-table__row td {
   height: 36px;
   padding-top: 0;
   padding-bottom: 0;
-}
-.gantt-table .el-table th.el-table__cell > .cell {
-  line-height: 24px;
+  box-sizing: border-box;
 }
 .proj-name { font-weight: 600; }
 .danger-btn.el-button--text { color: #f56c6c; }

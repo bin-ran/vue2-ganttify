@@ -17,6 +17,7 @@ npm run build   # 构建
 ## 演示功能（全部为社区版免费能力）
 
 - 左侧 el-table：树形展开/收起（与时间轴折叠双向同步）、行点击 ↔ 任务条选中联动、进度列（el-progress）、操作列（编辑 / 加子任务 / 删除）
+- **表格/时间轴分割条可拖拽**调整宽度比例（双击分割条恢复默认宽度）
 - 右侧时间轴：拖动任务条改日期、拖两端改工期、拖进度段改进度、任务条边缘圆点拖拽创建依赖线（4 种类型）、点击依赖线确认删除
 - 双击任务条或表格“编辑” → el-dialog 表单（el-date-picker / el-slider，带校验），删除确认用 ElMessageBox
 - 时间轴季/月/日缩放、周末底色、今日列高亮、依赖线显示开关（el-switch）、深色主题切换
@@ -50,8 +51,10 @@ tasks prop ──parse──▶ gantt 实例 ──serialize──▶ el-table �
 
 - **必须用 `Gantt.getGanttInstance()` 创建独立实例**，并在 `beforeDestroy` 里 `destructor()`。直接用全局 `gantt` 单例 + 不销毁，路由二次进入会出现实例叠加、事件重复触发。
 - **隐藏 gantt 自带 grid 用自定义 `gantt.config.layout`**（只保留 `timeline` + 滚动条视图），不要用 `grid_width: 0` 的老办法。
-- **两侧行高必须严格对齐**（本示例统一 36px：`gantt.config.row_height = 36` + el-table td 覆写），否则纵向滚动同步会错位。
-- **纵向滚动同步用“数值差 > 1px 才动作”的防回环写法**，不要用互斥锁标志（scroll 事件时序不可控）。
+- **两侧行高必须严格对齐**（本示例统一 36px）：① `gantt.config.row_height = 36`；② el-table 的 td 默认 content-box，`height:36px` 加上 1px 边框会变 37px 逐行漂移，必须覆写 `box-sizing: border-box`；③ 表头高度也要与 `scale_height`(48px) 对齐，否则整体差一个常数偏移。
+- **纵向滚动同步必须加滚动锁**：dhtmlx 的 `scrollTo` 过程中会发出“过期中间值”的 `onGanttScroll` 事件，裸双向同步会乒乓打架（实测两边互相拉扯最后停在 0）。解法：一方发起同步后 50ms 内抑制另一方的回传（`_scrollLock` + 定时释放）。
+- **树形表格 `expand-change` 的第二参是布尔值**（该行是否展开）；普通展开行表格才是展开行数组——两种形态要兼容，否则直接 `expandedRows.map` 报 TypeError。
+- **分割条拖拽期间给两块区域加 `pointer-events: none`**：gantt 容器内有一个用于监听尺寸变化的 iframe（resize watcher），光标划过它会导致 document 上的 mousemove 丢失、拖拽中断。
 - **el-dialog 替代灯箱**：`onBeforeLightbox` 返回 false 全局拦截；`quick_info` 插件不要开（它的编辑按钮走灯箱，会打架）。
 - **dhtmlx 事件要同步返回值**，而 ElMessageBox 是异步的——删除确认的正确姿势：`onBeforeTaskDelete` 先返回 false 拦截，确认后带 `_delConfirm` 标记调 `g.deleteTask(id)`。
 - **`templates.*` 赋值必须放在 `init()` 之前**（v10 初始化时会捕获当时的模板函数）。
