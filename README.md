@@ -2,6 +2,8 @@
 
 左侧任务列表用 **ElementUI `el-table`（树形表格）**，右侧时间轴用 **`dhtmlx-gantt@10`**（社区版，MIT 协议可商用），编辑弹窗用 **`el-dialog + el-form`** 替代 dhtmlx 自带灯箱。
 
+本仓库同时是一个**可安装的组件库包**（见下方「组件库使用」），`src/` 即库源码，演示页与库共用同一份组件。
+
 ## 运行
 
 环境要求：Node >= 14（Vue CLI 5 官方要求 `^12.0.0 || >= 14.0.0`，Node 16/18/20/22/24 均实测可用）。
@@ -34,7 +36,49 @@ tasks prop ──parse──▶ gantt 实例 ──serialize──▶ el-table �
                           └──── addTask/updateTask/deleteTask ◀── el-dialog / 表格操作列
 ```
 
-## 集成到现有工程
+## 组件库使用
+
+### 构建与发布
+
+```bash
+npm run build:lib   # 产出 lib/dhtmlx-gantt-vue2.{common.js,umd.js,umd.min.js,css}（vue/element-ui/dhtmlx-gantt 均为外部依赖，不重复打包）
+npm pack            # 得到 tarball；正式发布前去掉 package.json 的 private
+```
+
+### 在其他工程使用（Vue 2.6 + ElementUI）
+
+```bash
+npm install dhtmlx-gantt-vue2-0.1.0.tgz   # 或发布后的包名
+```
+
+```js
+import Vue from 'vue'
+import ElementUI from 'element-ui'
+import 'element-ui/lib/theme-chalk/index.css'
+import { GanttChart } from 'dhtmlx-gantt-vue2'
+import 'dhtmlx-gantt-vue2/lib/dhtmlx-gantt-vue2.css'
+
+Vue.use(ElementUI) // el-table/el-dialog 由全局注册提供，库本身不内嵌 ElementUI
+```
+
+```vue
+<GanttChart
+  :tasks="tasks"
+  :show-links.sync="showLinks"
+  :table-width.sync="tableWidth"
+  :gantt-options="{ /* 浅合并覆盖 gantt.config 任意项 */ }"
+  @gantt-event="onGanttEvent"
+/>
+```
+
+- **Props**：`tasks`(必填)、`rowHeight=36`、`barHeight=20`、`scaleHeight=48`、`skin='material'`、`zoom='day'`、`showLinks`(.sync)、`tableWidth`(.sync)、`readonly`、`ganttOptions`
+- **事件**：`gantt-event`(`{type,message,data}`) + `update:showLinks` / `update:tableWidth`
+- **方法(refs)**：`getSnapshot()`、`getInstance()`
+- **插槽**：`toolbar-extra`（工具栏右侧追加自定义按钮）
+
+以上能力已在独立消费工程（webpack5 + npm 包安装）中端到端验证。
+
+## 集成到现有工程（源码方式，不想装包时）
 
 1. 安装依赖：`npm install dhtmlx-gantt@^10 element-ui@2.15.14`
 2. 拷贝 `src/components/GanttChart.vue` + `src/components/TaskDialog.vue`（仅依赖 element-ui）

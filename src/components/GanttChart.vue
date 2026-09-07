@@ -1,5 +1,5 @@
 <template>
-  <div class="gantt-wrapper">
+  <div class="gantt-wrapper" :class="{ resizing: resizing }" :style="cssVars">
     <!-- 工具栏（ElementUI） -->
     <div class="gantt-toolbar">
       <div class="tb-left">
@@ -13,16 +13,18 @@
       </div>
       <div class="tb-right">
         <span class="tb-label">依赖线</span>
-        <el-switch v-model="showLinks" @change="toggleLinks" />
+        <el-switch :value="innerShowLinks" @change="toggleLinks" />
         <el-button size="mini" @click="toggleSkin">{{ skin === 'dark' ? '浅色主题' : '深色主题' }}</el-button>
-        <el-button size="mini" type="primary" icon="el-icon-plus" @click="openCreate()">新增任务</el-button>
+        <el-button v-if="!readonly" size="mini" type="primary" icon="el-icon-plus" @click="openCreate()">新增任务</el-button>
         <el-button size="mini" icon="el-icon-download" @click="exportSnapshot">导出 JSON</el-button>
+        <!-- 预留：使用方追加自定义工具栏按钮 -->
+        <slot name="toolbar-extra"></slot>
       </div>
     </div>
 
     <div class="work-area">
       <!-- 左：ElementUI 树形表格（替代 gantt 自带 grid） -->
-      <div class="gantt-table" :style="{ width: tableWidth + 'px' }">
+      <div class="gantt-table" :style="{ width: innerTableWidth + 'px' }">
         <el-table
           ref="ganttTable"
           :data="tableData"
@@ -55,7 +57,7 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="145" align="center">
+          <el-table-column v-if="!readonly" label="操作" width="145" align="center">
             <template slot-scope="{ row }">
               <el-button type="text" size="mini" @click.stop="openEdit(row)">编辑</el-button>
               <el-button
@@ -95,7 +97,7 @@
 
 <script>
 import { Gantt } from 'dhtmlx-gantt'
-// v10 起皮肤/语言/扩展全部打进主包，只需引一个 css
+// v10 起皮肤/语言/扩展全部打进主包，只需引一个 css（lib 构建时会抽取进组件库 css）
 import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'
 import TaskDialog from './TaskDialog.vue'
 
@@ -107,34 +109,68 @@ export default {
   props: {
     /**
      * 结构：{ data: Task[], links: Link[] }
-     * 注意：甘特图内部是数据源（拖拽/弹窗编辑都在它身上改），
-     * 左侧表格数据由它派生；取全量数据用 getSnapshot()。
+     * gantt 实例是唯一数据源：表格数据由它派生；
+     * 取全量数据用 getSnapshot()。
      */
-    tasks: { type: Object, required: true }
+    tasks: { type: Object, required: true },
+    /** 行高（px），与左侧表格行高自动对齐 */
+    rowHeight: { type: Number, default: 36 },
+    /** 任务条高度（px），自动限制在行高内 */
+    barHeight: { type: Number, default: 20 },
+    /** 刻度区高度（px），表头随之对齐 */
+    scaleHeight: { type: Number, default: 48 },
+    /** 主题：material / terrace / dark / meadow / broadway / skyblue / contrast（初始值） */
+    skin: { type: String, default: 'material' },
+    /** 初始时间轴缩放：quarter / month / day */
+    zoom: { type: String, default: 'day' },
+    /** 依赖线显隐（支持 .sync） */
+    showLinks: { type: Boolean, default: true },
+    /** 左侧表格初始宽度（支持 .sync） */
+    tableWidth: { type: Number, default: 640 },
+    /** 只读模式：禁用全部拖拽/编辑/新增删除 */
+    readonly: { type: Boolean, default: false },
+    /** 逃生舱：浅合并覆盖 gantt.config 任意配置项（在组件内置配置之后应用） */
+    ganttOptions: { type: Object, default: null }
   },
 
   data() {
     return {
-      zoom: 'day',
-      skin: 'material',
-      showLinks: true,
       zoomLevels: [
         { key: 'quarter', label: '季' },
         { key: 'month', label: '月' },
         { key: 'day', label: '日' }
       ],
+      // 内部镜像（props 只作初始值，变更走 .sync 事件）
+      zoom: this.zoom,
+      skin: this.skin,
+      innerShowLinks: this.showLinks,
+      innerTableWidth: this.tableWidth,
+      resizing: false,
       // 左侧表格数据（由 gantt.serialize() 派生的树形结构）
       tableData: [],
       expandedIds: [],
       selectedId: null,
-      // 左侧表格宽度（拖拽分割条可调）
-      tableWidth: 640,
-      resizing: false,
       dialog: { visible: false, mode: 'create', task: null, parentName: '' }
     }
   },
 
+  computed: {
+    /** 行高/刻度高度以 CSS 变量下发，保证两侧严格对齐 */
+    cssVars() {
+      return {
+        '--g-row-h': this.rowHeight + 'px',
+        '--g-scale-h': this.scaleHeight + 'px'
+      }
+    }
+  },
+
   watch: {
+    showLinks(val) {
+      this.innerShowLinks = val
+    },
+    tableWidth(val) {
+      this.innerTableWidth = val
+    },
     // 父组件整体替换 tasks 对象（引用变化）时重新加载
     tasks(val) {
       if (!this.gantt) return
@@ -151,6 +187,7 @@ export default {
     this.nodeMap = {}
     this._raf = null
     this._scrollLock = null
+    this._defaultTableWidth = this.tableWidth
   },
 
   mounted() {
@@ -190,22 +227,23 @@ export default {
 
       // ---- 中文与皮肤 ----
       g.i18n.setLocale('cn')
-      g.setSkin(this.skin) // 可选：material / terrace / dark / meadow / broadway / skyblue / contrast
+      g.setSkin(this.skin)
 
       // ---- 基础配置 ----
       g.config.date_format = '%Y-%m-%d' // 与数据中的日期字符串格式一致
       g.config.fit_tasks = true         // 数据超出当前时间轴范围时自动扩展
-      g.config.row_height = 36          // 与左侧 el-table 行高保持一致（滚动同步的前提）
-      g.config.bar_height = 20
+      g.config.row_height = this.rowHeight
+      g.config.bar_height = Math.max(10, Math.min(this.barHeight, this.rowHeight - 12))
       g.config.auto_types = true        // 有子任务的节点自动按“项目”汇总
       g.config.open_tree_initially = true
+      g.config.readonly = !!this.readonly
 
       // ---- 拖拽能力（社区版全部免费）----
       g.config.drag_move = true     // 拖动任务条 → 修改起止日期
       g.config.drag_resize = true   // 拖动任务条两端 → 修改工期
       g.config.drag_progress = true // 拖动任务条里的深色进度段 → 修改进度
       g.config.drag_links = true    // 任务条两端圆点拖拽 → 创建依赖线
-      g.config.show_links = true    // 依赖线显示开关（工具栏 el-switch 切换的就是它）
+      g.config.show_links = this.innerShowLinks // 依赖线显示开关
 
       // ---- 左侧 grid 由 ElementUI el-table 替代，这里只渲染时间轴 ----
       g.config.layout = {
@@ -221,8 +259,6 @@ export default {
         ]
       }
 
-      // auto_scheduling（自动排程）、关键路径、资源面板、基线都是 PRO 收费功能，社区版没有，保持默认关闭
-
       // ---- 周末底色 + “今天”列高亮 ----
       // 注意：必须在 init() 之前赋值，v10 初始化时会捕获当时的模板函数
       const isWeekend = (date) => date.getDay() === 0 || date.getDay() === 6
@@ -234,7 +270,37 @@ export default {
 
       this.applyZoom(this.zoom)
 
+      // ---- 逃生舱：使用方浅合并覆盖 gantt.config ----
+      if (this.ganttOptions) {
+        Object.keys(this.ganttOptions).forEach((key) => {
+          g.config[key] = this.ganttOptions[key]
+        })
+      }
+
       g.init(this.$refs.ganttEl)
+    },
+
+    /** 时间轴缩放：切换两级刻度 */
+    applyZoom(level) {
+      const scales = {
+        quarter: [
+          { unit: 'year', step: 1, format: '%Y' },
+          { unit: 'quarter', step: 1, format: (date) => `Q${Math.floor(date.getMonth() / 3) + 1}` }
+        ],
+        month: [
+          { unit: 'month', step: 1, format: '%Y年%m月' },
+          { unit: 'day', step: 1, format: '%d' }
+        ],
+        day: [
+          { unit: 'month', step: 1, format: '%Y年%m月' },
+          { unit: 'day', step: 1, format: (date) => `${date.getDate()}日` }
+        ]
+      }[level]
+
+      this.gantt.config.scales = scales
+      this.gantt.config.scale_height = this.scaleHeight
+      // init 完成后才有 $root，避免初始化前调 render 报错
+      if (this.gantt.$root) this.gantt.render()
     },
 
     /** 由 gantt 数据派生左侧表格树（gantt 是唯一数据源） */
@@ -363,7 +429,7 @@ export default {
 
       // 双击任务条 → 打开 el-dialog 编辑（返回 false 阻止默认灯箱）
       g.attachEvent('onTaskDblClick', (id) => {
-        this.openEdit(this.nodeMap[id])
+        if (!this.readonly) this.openEdit(this.nodeMap[id])
         return false
       })
 
@@ -437,7 +503,7 @@ export default {
     onResizerMousedown(e) {
       e.preventDefault()
       this._dragStartX = e.clientX
-      this._dragStartW = this.tableWidth
+      this._dragStartW = this.innerTableWidth
       this.resizing = true
       // 拖拽期间禁用两块区域的鼠标事件：避免光标划过 gantt 内部 iframe 时丢失 mousemove
       document.addEventListener('mousemove', this.onResizerMove)
@@ -449,7 +515,7 @@ export default {
       // 左侧最小 420，右侧至少留 420 给时间轴
       const max = rect.width - 420
       const next = this._dragStartW + (e.clientX - this._dragStartX)
-      this.tableWidth = Math.min(max, Math.max(420, Math.round(next)))
+      this.innerTableWidth = Math.min(max, Math.max(420, Math.round(next)))
       // rAF 节流：拖动过程中让 gantt 重排（时间轴宽度变化）
       if (!this._raf) {
         this._raf = requestAnimationFrame(() => {
@@ -463,12 +529,14 @@ export default {
       this.resizing = false
       this.teardownResizer()
       if (this.gantt) this.gantt.setSizes()
-      this.emitEvent('resizer-change', `表格宽度调整为 ${this.tableWidth}px`, { tableWidth: this.tableWidth })
+      this.$emit('update:tableWidth', this.innerTableWidth)
+      this.emitEvent('resizer-change', `表格宽度调整为 ${this.innerTableWidth}px`, { tableWidth: this.innerTableWidth })
     },
 
     resetResizer() {
-      this.tableWidth = 640
+      this.innerTableWidth = this._defaultTableWidth
       if (this.gantt) this.gantt.setSizes()
+      this.$emit('update:tableWidth', this.innerTableWidth)
     },
 
     teardownResizer() {
@@ -477,37 +545,19 @@ export default {
     },
 
     // ---------- 工具栏 ----------
-    applyZoom(level) {
-      const scales = {
-        quarter: [
-          { unit: 'year', step: 1, format: '%Y' },
-          { unit: 'quarter', step: 1, format: (date) => `Q${Math.floor(date.getMonth() / 3) + 1}` }
-        ],
-        month: [
-          { unit: 'month', step: 1, format: '%Y年%m月' },
-          { unit: 'day', step: 1, format: '%d' }
-        ],
-        day: [
-          { unit: 'month', step: 1, format: '%Y年%m月' },
-          { unit: 'day', step: 1, format: (date) => `${date.getDate()}日` }
-        ]
-      }[level]
-
-      this.gantt.config.scales = scales
-      this.gantt.config.scale_height = 48
-      // init 完成后才有 $root，避免初始化前调 render 报错
-      if (this.gantt.$root) this.gantt.render()
-    },
-
     toggleLinks(showLinks) {
-      this.gantt.config.show_links = showLinks
-      this.gantt.render()
+      this.innerShowLinks = showLinks
+      this.$emit('update:showLinks', showLinks)
+      if (this.gantt) {
+        this.gantt.config.show_links = showLinks
+        this.gantt.render()
+      }
       this.emitEvent('links-toggle', showLinks ? '显示依赖线' : '隐藏依赖线', { showLinks })
     },
 
     toggleSkin() {
       this.skin = this.skin === 'dark' ? 'material' : 'dark'
-      this.gantt.setSkin(this.skin)
+      if (this.gantt) this.gantt.setSkin(this.skin)
     },
 
     exportSnapshot() {
@@ -548,6 +598,7 @@ export default {
 
     // ---------- 编辑弹窗 ----------
     openCreate(parentRow) {
+      if (this.readonly) return
       this.dialog = {
         visible: true,
         mode: parentRow ? 'appendChild' : 'create',
@@ -557,7 +608,7 @@ export default {
     },
 
     openEdit(row) {
-      if (!row) return
+      if (this.readonly || !row) return
       this.dialog = { visible: true, mode: 'edit', task: row, parentName: '' }
     },
 
@@ -590,6 +641,7 @@ export default {
 
     /** 删除确认（异步确认后带标记执行真正删除） */
     confirmDelete(text, id) {
+      if (this.readonly) return
       this.$confirm(`确定删除任务「${text}」吗？（子任务会一并删除）`, '提示', { type: 'warning' })
         .then(() => {
           this._delConfirm = true
@@ -608,9 +660,14 @@ export default {
       this.$emit('gantt-event', { type, message, data })
     },
 
-    /** 对外方法：取全量数据（父组件通过 $refs.gantt.getSnapshot() 调用，对接后端保存） */
+    /** 对外方法：取 gantt 实例（进阶用法，直接调 dhtmlx API） */
+    getInstance() {
+      return this.gantt
+    },
+
+    /** 对外方法：取全量数据（对接后端保存） */
     getSnapshot() {
-      return this.gantt.serialize()
+      return this.gantt ? this.gantt.serialize() : { data: [], links: [] }
     }
   }
 }
@@ -675,20 +732,20 @@ export default {
   pointer-events: none;
 }
 
-/* 表头高度对齐 gantt 刻度区（scale_height=48） */
+/* 表头高度对齐 gantt 刻度区（scale_height） */
 .gantt-table .el-table th {
-  height: 48px;
+  height: var(--g-scale-h);
   padding: 0;
   box-sizing: border-box;
 }
 .gantt-table .el-table th > .cell {
-  line-height: 47px; /* 48 - 1px 底边框 */
+  line-height: calc(var(--g-scale-h) - 1px); /* 减 1px 底边框 */
 }
 
-/* 表格行高与 gantt row_height(36px) 严格对齐：
-   td 默认 content-box，height:36 + 1px 边框会变 37px 逐行漂移，必须 border-box */
+/* 表格行高与 gantt row_height 严格对齐：
+   td 默认 content-box，height + 1px 边框会逐行漂移，必须 border-box */
 .gantt-table .el-table__row td {
-  height: 36px;
+  height: var(--g-row-h);
   padding-top: 0;
   padding-bottom: 0;
   box-sizing: border-box;
