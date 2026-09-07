@@ -1,10 +1,10 @@
 <template>
   <div id="app">
     <header class="app-header">
-      <h1>DHTMLX Gantt 社区版 × Vue 2.6 集成示例</h1>
+      <h1>DHTMLX Gantt 时间轴 × ElementUI 表格 × Vue 2.6 集成示例</h1>
       <p class="tips">
-        拖动任务条改日期 · 拖两端改工期 · 拖进度段改进度 · 任务条边缘圆点拖出依赖线 ·
-        左侧树内拖动排序 · 双击任务编辑 · 按住空白时间轴拖动平移
+        左侧 ElementUI 表格：展开/收起、行选中、编辑/加子任务/删除；右侧时间轴：拖动任务条改日期、拖两端改工期、
+        拖进度段改进度、圆点拖出依赖线、双击任务条编辑；两侧纵向滚动互相同步
       </p>
     </header>
 
