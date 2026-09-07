@@ -9,7 +9,6 @@
  *
  * 依赖字段：
  *   id / source / target / type
- *   type: 0 完成-开始(FS)  1 开始-开始(SS)  2 完成-完成(FF)  3 开始-完成(SF)
  */
 export default {
   data: [
@@ -22,11 +21,5 @@ export default {
     { id: 6, text: '测试回归', start_date: '2026-09-14', duration: 5, progress: 0, parent: 5 },
     { id: 7, text: '发布上线', start_date: '2026-09-21', duration: 2, progress: 0, parent: 5 },
     { id: 8, text: '上线评审会', start_date: '2026-09-23', type: 'milestone', parent: 5 }
-  ],
-  links: [
-    { id: 1, source: 2, target: 3, type: '0' },
-    { id: 2, source: 3, target: 4, type: '0' },
-    { id: 3, source: 4, target: 6, type: '0' },
-    { id: 4, source: 7, target: 8, type: '0' }
   ]
 }

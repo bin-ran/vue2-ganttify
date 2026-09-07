@@ -20,9 +20,8 @@ npm run build   # 构建
 
 - 左侧 el-table：树形展开/收起（与时间轴折叠双向同步）、行点击 ↔ 任务条选中联动、进度列（el-progress）、操作列（编辑 / 加子任务 / 删除）
 - **表格/时间轴分割条可拖拽**调整宽度比例（双击分割条恢复默认宽度）
-- 右侧时间轴：拖动任务条改日期、拖两端改工期、拖进度段改进度、任务条边缘圆点拖拽创建依赖线（4 种类型）、点击依赖线确认删除
 - 双击任务条或表格“编辑” → el-dialog 表单（el-date-picker / el-slider，带校验），删除确认用 ElMessageBox
-- 时间轴季/月/日缩放、周末底色、今日列高亮、依赖线显示开关（el-switch）、深色主题切换
+- 时间轴季/月/日缩放、周末底色、今日列高亮、深色主题切换
 - 两侧纵向滚动互相同步（行高严格对齐 36px）
 - 事件全部转发到父组件，`getSnapshot()` 输出全量 JSON 对接后端
 
@@ -67,7 +66,6 @@ Vue.use(ElementUI) // el-table/el-dialog 由全局注册提供，库本身不内
   :fields="fields"
   :table-data="tableRows"
   :columns="columns"
-  :show-links.sync="showLinks"
   :table-width.sync="tableWidth"
   :gantt-options="{ /* 浅合并覆盖 gantt.config 任意项 */ }"
   @gantt-event="onGanttEvent"
@@ -79,8 +77,8 @@ Vue.use(ElementUI) // el-table/el-dialog 由全局注册提供，库本身不内
 </GanttChart>
 ```
 
-- **Props**：`tasks`(必填)、`fields`(字段映射)、`tableData`(外部表格行)、`columns`(列配置)、`rowHeight=36`、`barHeight=20`、`scaleHeight=48`、`skin='material'`、`zoom='day'`、`showLinks`(.sync)、`tableWidth`(.sync)、`readonly`、`ganttOptions`
-- **事件**：`gantt-event`(`{type,message,data}`)、`table-data-change`(合并后全量行)、`update:showLinks` / `update:tableWidth`
+- **Props**：`tasks`(必填)、`fields`(字段映射)、`tableData`(外部表格行)、`columns`(列配置)、`rowHeight=36`、`barHeight=20`、`scaleHeight=48`、`skin='material'`、`zoom='day'`、`tableWidth`(.sync)、`readonly`、`ganttOptions`
+- **事件**：`gantt-event`(`{type,message,data}`)、`table-data-change`(合并后全量行)、`update:tableWidth`
 - **方法(refs)**：`getSnapshot()`、`getInstance()`
 - **插槽**：`toolbar-extra` + 任意列 `#col-<key>="{ row }"`
 

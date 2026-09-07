@@ -12,8 +12,6 @@
         </el-radio-group>
       </div>
       <div class="tb-right">
-        <span class="tb-label">依赖线</span>
-        <el-switch :value="innerShowLinks" @change="toggleLinks" />
         <el-button size="mini" @click="toggleSkin">{{ skin === 'dark' ? '浅色主题' : '深色主题' }}</el-button>
         <el-button v-if="!readonly" size="mini" type="primary" icon="el-icon-plus" @click="openCreate()">新增任务</el-button>
         <el-button size="mini" icon="el-icon-download" @click="exportSnapshot">导出 JSON</el-button>
@@ -162,7 +160,7 @@ export default {
 
   props: {
     /**
-     * 结构：{ data: Task[], links: Link[] }
+     * 结构：{ data: Task[] }（无依赖线概念）
      * gantt 实例是唯一数据源：表格数据由它派生；
      * 取全量数据用 getSnapshot()。
      */
@@ -177,8 +175,6 @@ export default {
     skin: { type: String, default: 'material' },
     /** 初始时间轴缩放：quarter / month / day */
     zoom: { type: String, default: 'day' },
-    /** 依赖线显隐（支持 .sync） */
-    showLinks: { type: Boolean, default: true },
     /** 左侧表格初始宽度（支持 .sync） */
     tableWidth: { type: Number, default: 640 },
     /** 只读模式：禁用全部拖拽/编辑/新增删除 */
@@ -218,7 +214,6 @@ export default {
       // 内部镜像（props 只作初始值，变更走 .sync 事件）
       zoom: this.zoom,
       skin: this.skin,
-      innerShowLinks: this.showLinks,
       innerTableWidth: this.tableWidth,
       resizing: false,
       // 左侧表格数据（由 gantt 数据 + 外部 tableData 合并派生的树形结构）
@@ -246,7 +241,7 @@ export default {
         })
         return row
       })
-      return { data, links: src.links || [] }
+      return { data }
     },
     /** 原始源数据按 id 索引（透传自定义字段用） */
     sourceById() {
@@ -288,9 +283,6 @@ export default {
   },
 
   watch: {
-    showLinks(val) {
-      this.innerShowLinks = val
-    },
     tableWidth(val) {
       this.innerTableWidth = val
     },
@@ -369,8 +361,6 @@ export default {
       g.config.drag_move = true     // 拖动任务条 → 修改起止日期
       g.config.drag_resize = true   // 拖动任务条两端 → 修改工期
       g.config.drag_progress = true // 拖动任务条里的深色进度段 → 修改进度
-      g.config.drag_links = true    // 任务条两端圆点拖拽 → 创建依赖线
-      g.config.show_links = this.innerShowLinks // 依赖线显示开关
 
       // ---- 左侧 grid 由 ElementUI el-table 替代，这里只渲染时间轴 ----
       g.config.layout = {
@@ -576,21 +566,6 @@ export default {
         this.rebuildTable()
       })
 
-      g.attachEvent('onAfterLinkAdd', (id, link) => {
-        const typeText = { 0: '完成-开始', 1: '开始-开始', 2: '完成-完成', 3: '开始-完成' }[link.type]
-        const from = g.getTask(link.source)
-        const to = g.getTask(link.target)
-        this.emitEvent(
-          'link-add',
-          `新增依赖：「${from.text}」→「${to.text}」（${typeText}）`,
-          link
-        )
-      })
-
-      g.attachEvent('onAfterLinkDelete', (id, link) => {
-        this.emitEvent('link-delete', '删除了一条依赖线', link)
-      })
-
       // ---- 交互联动 ----
       // 点击任务条 → 左侧表格选中对应行
       g.attachEvent('onTaskClick', (id) => {
@@ -618,17 +593,6 @@ export default {
         const task = g.getTask(id)
         this.confirmDelete(task.text, id)
         return false
-      })
-
-      // 点击依赖线 → 确认后删除
-      g.attachEvent('onLinkClick', (id) => {
-        const link = g.getLink(id)
-        const from = g.getTask(link.source)
-        const to = g.getTask(link.target)
-        this.$confirm(`删除依赖：「${from.text}」→「${to.text}」？`, '提示', { type: 'warning' })
-          .then(() => g.deleteLink(id))
-          .catch(() => {})
-        return true
       })
 
       // ---- 纵向滚动同步：gantt → el-table ----
@@ -720,16 +684,6 @@ export default {
     },
 
     // ---------- 工具栏 ----------
-    toggleLinks(showLinks) {
-      this.innerShowLinks = showLinks
-      this.$emit('update:showLinks', showLinks)
-      if (this.gantt) {
-        this.gantt.config.show_links = showLinks
-        this.gantt.render()
-      }
-      this.emitEvent('links-toggle', showLinks ? '显示依赖线' : '隐藏依赖线', { showLinks })
-    },
-
     toggleSkin() {
       this.skin = this.skin === 'dark' ? 'material' : 'dark'
       if (this.gantt) this.gantt.setSkin(this.skin)
@@ -740,7 +694,7 @@ export default {
       console.log('[Gantt 全量数据]', JSON.stringify(snapshot, null, 2))
       this.emitEvent(
         'snapshot',
-        `全量数据已打印到控制台（${snapshot.data.length} 个任务 / ${snapshot.links.length} 条依赖）`,
+        `全量数据已打印到控制台（${snapshot.data.length} 个任务）`,
         snapshot
       )
     },
@@ -842,7 +796,7 @@ export default {
 
     /** 对外方法：取全量数据（对接后端保存） */
     getSnapshot() {
-      return this.gantt ? this.gantt.serialize() : { data: [], links: [] }
+      return this.gantt ? this.gantt.serialize() : { data: [] }
     }
   }
 }
