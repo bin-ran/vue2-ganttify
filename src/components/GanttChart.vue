@@ -56,24 +56,17 @@
                 v-bind="scope"
               ></slot>
               <template v-else-if="col.key === 'text'">
-                <el-tag v-if="scope.row.type === 'milestone'" size="mini" type="warning">里程碑</el-tag>
                 <span :class="{ 'proj-name': scope.row.type === 'project' }">{{ scope.row.text }}</span>
               </template>
               <el-progress
-                v-else-if="col.key === 'progress' && scope.row.type !== 'milestone'"
+                v-else-if="col.key === 'progress'"
                 :percentage="Math.min(100, scope.row.progress || 0)"
                 :stroke-width="8"
                 :show-text="false"
               />
-              <span v-else-if="col.key === 'progress'">-</span>
               <template v-else-if="col.key === 'ops'">
                 <el-button type="text" size="mini" @click.stop="openEdit(scope.row)">编辑</el-button>
-                <el-button
-                  v-if="scope.row.type !== 'milestone'"
-                  type="text"
-                  size="mini"
-                  @click.stop="openCreate(scope.row)"
-                >加子任务</el-button>
+                <el-button type="text" size="mini" @click.stop="openCreate(scope.row)">加子任务</el-button>
                 <el-button type="text" size="mini" class="danger-btn" @click.stop="confirmDelete(scope.row.text, scope.row.id)">删除</el-button>
               </template>
               <template v-else>
@@ -139,8 +132,7 @@ const DEFAULT_FIELDS = {
   endDate: 'end_date',
   duration: 'duration',
   progress: 'progress',
-  parent: 'parent',
-  type: 'type'
+  parent: 'parent'
 }
 // 语义字段 → gantt 引擎字段名
 const GANTT_KEY = {
@@ -149,8 +141,7 @@ const GANTT_KEY = {
   endDate: 'end_date',
   duration: 'duration',
   progress: 'progress',
-  parent: 'parent',
-  type: 'type'
+  parent: 'parent'
 }
 
 export default {
@@ -193,7 +184,7 @@ export default {
     tableData: { type: Array, default: null },
     /**
      * 左侧表格列配置，缺省为内置 6 列。
-     * key 为内置类型时保留专门渲染：text(树列+里程碑标签) / start / end / duration /
+     * key 为内置类型时保留专门渲染：text(树列) / start / end / duration /
      * progress(进度条) / ops(编辑/加子任务/删除，readonly 时自动隐藏)；
      * key 为其他值时渲染任务数据里的同名字段（自定义字段会透传），
      * 任意列均可用作用域插槽 #col-<key>="{ row }" 覆盖渲染。
@@ -447,14 +438,13 @@ export default {
       // 1) gantt 权威字段（归一化名：id/text/type/start/end/duration/progress）
       const fieldsById = {}
       snap.data.forEach((t) => {
-        const isMilestone = t.type === 'milestone'
         fieldsById[t.id] = {
           id: t.id,
           text: t.text,
           type: t.type || 'task',
           start: t.start_date,
           // serialize 的 end_date 是“排他”结束；表格展示“含当天”的结束日期
-          end: isMilestone ? t.start_date : fmtD(new Date(parseD(t.end_date).getTime() - 86400000)),
+          end: fmtD(new Date(parseD(t.end_date).getTime() - 86400000)),
           duration: t.duration,
           progress: Math.round((t.progress || 0) * 100),
           parentId: t.parent || 0
@@ -789,12 +779,11 @@ export default {
       const d = this.dialog
 
       if (d.mode === 'edit') {
-        const patch = { text: form.text }
-        // 里程碑只改名称（日期在时间轴上拖动调整）
-        if (d.task.type !== 'milestone') {
-          patch.start_date = form.start
-          patch.duration = this.diffDays(form.start, form.end) + 1 // 结束日期含当天
-          patch.progress = form.progress / 100
+        const patch = {
+          text: form.text,
+          start_date: form.start,
+          duration: this.diffDays(form.start, form.end) + 1, // 结束日期含当天
+          progress: form.progress / 100
         }
         g.updateTask(d.task.id, patch)
       } else {

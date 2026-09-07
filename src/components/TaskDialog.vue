@@ -15,36 +15,27 @@
         <el-input v-model.trim="form.text" placeholder="请输入任务名称" maxlength="50" />
       </el-form-item>
 
-      <template v-if="!isMilestone">
-        <el-form-item label="开始日期" prop="start">
-          <el-date-picker
-            v-model="form.start"
-            type="date"
-            value-format="yyyy-MM-dd"
-            placeholder="选择开始日期"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item label="结束日期" prop="end">
-          <el-date-picker
-            v-model="form.end"
-            type="date"
-            value-format="yyyy-MM-dd"
-            placeholder="选择结束日期（含当天）"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item label="进度">
-          <el-slider v-model="form.progress" :min="0" :max="100" show-input input-size="mini" />
-        </el-form-item>
-      </template>
-
-      <el-alert
-        v-else
-        title="里程碑只支持修改名称，日期请在时间轴上拖动调整"
-        type="info"
-        :closable="false"
-      />
+      <el-form-item label="开始日期" prop="start">
+        <el-date-picker
+          v-model="form.start"
+          type="date"
+          value-format="yyyy-MM-dd"
+          placeholder="选择开始日期"
+          style="width: 100%"
+        />
+      </el-form-item>
+      <el-form-item label="结束日期" prop="end">
+        <el-date-picker
+          v-model="form.end"
+          type="date"
+          value-format="yyyy-MM-dd"
+          placeholder="选择结束日期（含当天）"
+          style="width: 100%"
+        />
+      </el-form-item>
+      <el-form-item label="进度">
+        <el-slider v-model="form.progress" :min="0" :max="100" show-input input-size="mini" />
+      </el-form-item>
     </el-form>
 
     <span slot="footer">
@@ -91,12 +82,9 @@ export default {
 
   computed: {
     title() {
-      if (this.mode === 'edit') return this.isMilestone ? '编辑里程碑' : '编辑任务'
+      if (this.mode === 'edit') return '编辑任务'
       if (this.mode === 'appendChild') return `添加子任务（上级：${this.parentName}）`
       return '新增任务'
-    },
-    isMilestone() {
-      return !!(this.mode === 'edit' && this.task && this.task.type === 'milestone')
     }
   },
 

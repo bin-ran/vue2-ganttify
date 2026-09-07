@@ -104,7 +104,7 @@ columns 缺省为内置 6 列（任务名称/开始/结束/工期/进度/操作�
 { key: 'ops', label: '操作', width: 145 }          // 操作列（readonly 时自动隐藏）
 ```
 
-- 内置类型：`text`(树列+里程碑标签) / `start` / `end` / `duration` / `progress`(进度条) / `ops`
+- 内置类型：`text`(树列) / `start` / `end` / `duration` / `progress`(进度条) / `ops`
 - 自定义字段列：渲染 `row[key]`，可用 `format: row => string` 格式化，或作用域插槽 `#col-<key>` 覆盖（内置列也可覆盖）
 
 #### tableData 外部表格数据
