@@ -295,6 +295,7 @@ export default {
       if (!this.gantt) return
       this.gantt.clearAll()
       this.gantt.parse(this.normalizedTasks)
+      this.ensureTimeRange()
       this.rebuildTable()
     }
   },
@@ -314,6 +315,7 @@ export default {
     this.gantt = Gantt.getGanttInstance()
     this.initGantt()
     this.gantt.parse(this.normalizedTasks)
+    this.ensureTimeRange()
     this.rebuildTable()
     this.bindEvents()
   },
@@ -394,6 +396,13 @@ export default {
         Object.keys(this.ganttOptions).forEach((key) => {
           g.config[key] = this.ganttOptions[key]
         })
+      }
+
+      // 用户未显式指定 start_date/end_date 时由组件管理时间轴范围（见 ensureTimeRange）；
+      // 此时须关掉 fit_tasks，否则每次数据变化 dhtmlx 会把范围缩回任务数据边界，留白失效
+      this._autoRange = !(g.config.start_date || g.config.end_date)
+      if (this._autoRange && !(this.ganttOptions && 'fit_tasks' in this.ganttOptions)) {
+        g.config.fit_tasks = false
       }
 
       g.init(this.$refs.ganttEl)
@@ -554,11 +563,13 @@ export default {
 
       g.attachEvent('onAfterTaskAdd', (id, task) => {
         this.emitEvent('task-add', `新增任务：「${task.text}」`, task)
+        this.ensureTimeRange()
         this.rebuildTable()
       })
 
       g.attachEvent('onAfterTaskUpdate', (id, task) => {
         this.emitEvent('task-update', `任务已更新：「${task.text}」`, task)
+        this.ensureTimeRange()
         this.rebuildTable()
       })
 
@@ -683,6 +694,36 @@ export default {
     teardownResizer() {
       document.removeEventListener('mousemove', this.onResizerMove)
       document.removeEventListener('mouseup', this.onResizerMouseup)
+    },
+
+    /**
+     * 时间轴两侧留白：默认范围贴着任务数据边界（最晚任务的日期即右边界），
+     * 滚动条/任务条往右拖到数据边界就会被顶住。这里把范围扩到
+     * [最早任务所在月初, 最晚任务月末+2 个月]，只外扩不收缩；
+     * 用户通过 ganttOptions 显式指定 start_date/end_date 时不接管
+     */
+    ensureTimeRange() {
+      const g = this.gantt
+      if (!g || !this._autoRange) return
+      let min = null
+      let max = null
+      g.eachTask((t) => {
+        if (!t.start_date) return
+        const end = t.end_date || t.start_date
+        if (!min || t.start_date < min) min = t.start_date
+        if (!max || end > max) max = end
+      })
+      if (!min || !max) return
+      const wantStart = new Date(min.getFullYear(), min.getMonth(), 1)
+      const wantEnd = new Date(max.getFullYear(), max.getMonth() + 2, 1)
+      const curS = g.config.start_date
+      const curE = g.config.end_date
+      if (curS && curE && curS <= wantStart && curE >= wantEnd) return
+      const keep = g.getScrollState()
+      g.config.start_date = curS && curS < wantStart ? curS : wantStart
+      g.config.end_date = curE && curE > wantEnd ? curE : wantEnd
+      g.render()
+      g.scrollTo(keep.x, keep.y)
     },
 
     // ---------- 工具栏 ----------
