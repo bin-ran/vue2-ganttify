@@ -27,7 +27,7 @@
       <div class="gantt-table" :style="{ width: innerTableWidth + 'px' }">
         <el-table
           ref="ganttTable"
-          :data="tableData"
+          :data="rows"
           row-key="id"
           :tree-props="{ children: 'children' }"
           border
@@ -37,17 +37,26 @@
           @row-click="onRowClick"
           @expand-change="onExpandChange"
         >
-          <el-table-column prop="text" label="任务名称" min-width="170" show-overflow-tooltip>
-            <template slot-scope="{ row }">
+          <el-table-column
+            v-for="col in visibleColumns"
+            :key="col.key"
+            :prop="col.key === 'ops' ? undefined : col.key"
+            :label="col.label"
+            :width="col.width"
+            :min-width="col.minWidth"
+            :align="col.align"
+            :sortable="col.sortable"
+            :show-overflow-tooltip="col.tooltip"
+          >
+            <!-- 使用方可通过 #col-<key> 覆盖任意列（含内置列）的渲染 -->
+            <template v-if="$scopedSlots['col-' + col.key]" slot-scope="scope">
+              <slot :name="'col-' + col.key" v-bind="scope"></slot>
+            </template>
+            <template v-else-if="col.key === 'text'" slot-scope="{ row }">
               <el-tag v-if="row.type === 'milestone'" size="mini" type="warning">里程碑</el-tag>
               <span :class="{ 'proj-name': row.type === 'project' }">{{ row.text }}</span>
             </template>
-          </el-table-column>
-          <el-table-column prop="start" label="开始" width="90" align="center" />
-          <el-table-column prop="end" label="结束" width="90" align="center" />
-          <el-table-column prop="duration" label="工期" width="55" align="center" />
-          <el-table-column label="进度" width="100" align="center">
-            <template slot-scope="{ row }">
+            <template v-else-if="col.key === 'progress'" slot-scope="{ row }">
               <el-progress
                 v-if="row.type !== 'milestone'"
                 :percentage="Math.min(100, row.progress || 0)"
@@ -56,9 +65,7 @@
               />
               <span v-else>-</span>
             </template>
-          </el-table-column>
-          <el-table-column v-if="!readonly" label="操作" width="145" align="center">
-            <template slot-scope="{ row }">
+            <template v-else-if="col.key === 'ops'" slot-scope="{ row }">
               <el-button type="text" size="mini" @click.stop="openEdit(row)">编辑</el-button>
               <el-button
                 v-if="row.type !== 'milestone'"
@@ -67,6 +74,9 @@
                 @click.stop="openCreate(row)"
               >加子任务</el-button>
               <el-button type="text" size="mini" class="danger-btn" @click.stop="confirmDelete(row.text, row.id)">删除</el-button>
+            </template>
+            <template v-else slot-scope="{ row }">
+              {{ col.format ? col.format(row) : row[col.key] }}
             </template>
           </el-table-column>
         </el-table>
@@ -101,6 +111,46 @@ import { Gantt } from 'dhtmlx-gantt'
 import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'
 import TaskDialog from './TaskDialog.vue'
 
+// 内置列的默认文案/宽度（columns 不传时使用全默认列）
+const DEFAULT_LABELS = {
+  text: '任务名称',
+  start: '开始',
+  end: '结束',
+  duration: '工期',
+  progress: '进度',
+  ops: '操作'
+}
+const DEFAULT_MIN_WIDTHS = {
+  text: 170,
+  start: 90,
+  end: 90,
+  duration: 55,
+  progress: 100,
+  ops: 145
+}
+
+// 甘特引擎所需的语义字段 → 默认数据字段名（可用 fields prop 覆盖）
+const DEFAULT_FIELDS = {
+  id: 'id',
+  text: 'text',
+  startDate: 'start_date',
+  endDate: 'end_date',
+  duration: 'duration',
+  progress: 'progress',
+  parent: 'parent',
+  type: 'type'
+}
+// 语义字段 → gantt 引擎字段名
+const GANTT_KEY = {
+  text: 'text',
+  startDate: 'start_date',
+  endDate: 'end_date',
+  duration: 'duration',
+  progress: 'progress',
+  parent: 'parent',
+  type: 'type'
+}
+
 export default {
   name: 'GanttChart',
 
@@ -129,6 +179,27 @@ export default {
     tableWidth: { type: Number, default: 640 },
     /** 只读模式：禁用全部拖拽/编辑/新增删除 */
     readonly: { type: Boolean, default: false },
+    /**
+     * 甘特数据字段映射：把使用方的数据字段名映射到组件所需的语义字段。
+     * 可映射键：id / text / startDate / endDate / duration / progress / parent / type
+     * 缺省使用默认名（id/text/start_date/end_date/duration/progress/parent/type）
+     */
+    fields: { type: Object, default: null },
+    /**
+     * 外部表格数据：[{ [fields.id]: 任务id, ...任意自定义字段 }]
+     * 行序与外部一致；日期/工期/进度等以 gantt 为权威合并；
+     * gantt 变更后 emit 'table-data-change' 回传合并行（内容无变化不重复回传）
+     */
+    tableData: { type: Array, default: null },
+    /**
+     * 左侧表格列配置，缺省为内置 6 列。
+     * key 为内置类型时保留专门渲染：text(树列+里程碑标签) / start / end / duration /
+     * progress(进度条) / ops(编辑/加子任务/删除，readonly 时自动隐藏)；
+     * key 为其他值时渲染任务数据里的同名字段（自定义字段会透传），
+     * 任意列均可用作用域插槽 #col-<key>="{ row }" 覆盖渲染。
+     * 列项：{ key, label, width, minWidth, align, sortable, tooltip, format(row)=>String }
+     */
+    columns: { type: Array, default: null },
     /** 逃生舱：浅合并覆盖 gantt.config 任意配置项（在组件内置配置之后应用） */
     ganttOptions: { type: Object, default: null }
   },
@@ -146,8 +217,8 @@ export default {
       innerShowLinks: this.showLinks,
       innerTableWidth: this.tableWidth,
       resizing: false,
-      // 左侧表格数据（由 gantt.serialize() 派生的树形结构）
-      tableData: [],
+      // 左侧表格数据（由 gantt 数据 + 外部 tableData 合并派生的树形结构）
+      rows: [],
       expandedIds: [],
       selectedId: null,
       dialog: { visible: false, mode: 'create', task: null, parentName: '' }
@@ -155,12 +226,60 @@ export default {
   },
 
   computed: {
+    /** 语义字段 → 数据字段名的映射表 */
+    fieldMap() {
+      return Object.assign({}, DEFAULT_FIELDS, this.fields || {})
+    },
+    /** 把使用方数据按字段映射归一化成 gantt 引擎所需结构 */
+    normalizedTasks() {
+      const f = this.fieldMap
+      const src = this.tasks || {}
+      const data = (src.data || []).map((t) => {
+        const row = { id: t[f.id] }
+        Object.keys(GANTT_KEY).forEach((k) => {
+          const v = t[f[k]]
+          if (v !== undefined) row[GANTT_KEY[k]] = v
+        })
+        return row
+      })
+      return { data, links: src.links || [] }
+    },
+    /** 原始源数据按 id 索引（透传自定义字段用） */
+    sourceById() {
+      const f = this.fieldMap
+      const map = {}
+      ;((this.tasks || {}).data || []).forEach((t) => {
+        map[t[f.id]] = t
+      })
+      return map
+    },
     /** 行高/刻度高度以 CSS 变量下发，保证两侧严格对齐 */
     cssVars() {
       return {
         '--g-row-h': this.rowHeight + 'px',
         '--g-scale-h': this.scaleHeight + 'px'
       }
+    },
+    /** 归一化后的表格列配置 */
+    visibleColumns() {
+      const list = Array.isArray(this.columns) && this.columns.length ? this.columns : [
+        { key: 'text' }, { key: 'start' }, { key: 'end' },
+        { key: 'duration' }, { key: 'progress' }, { key: 'ops' }
+      ]
+      return list
+        .map((c) => (typeof c === 'string' ? { key: c } : c))
+        .filter((c) => c && c.key)
+        .map((c) => ({
+          key: c.key,
+          label: c.label || DEFAULT_LABELS[c.key] || c.key,
+          width: c.width,
+          minWidth: c.width ? undefined : (c.minWidth || DEFAULT_MIN_WIDTHS[c.key] || 80),
+          align: c.align || (c.key === 'text' ? 'left' : 'center'),
+          sortable: !!c.sortable,
+          tooltip: c.tooltip !== undefined ? !!c.tooltip : c.key === 'text',
+          format: typeof c.format === 'function' ? c.format : null
+        }))
+        .filter((c) => !(c.key === 'ops' && this.readonly))
     }
   },
 
@@ -171,11 +290,15 @@ export default {
     tableWidth(val) {
       this.innerTableWidth = val
     },
+    // 外部表格数据变化：仅重算合并行（gantt 仍是日期/进度的权威，不回灌引擎）
+    tableData() {
+      this.rebuildTable()
+    },
     // 父组件整体替换 tasks 对象（引用变化）时重新加载
     tasks(val) {
       if (!this.gantt) return
       this.gantt.clearAll()
-      this.gantt.parse(val)
+      this.gantt.parse(this.normalizedTasks)
       this.rebuildTable()
     }
   },
@@ -194,7 +317,7 @@ export default {
     // 每个组件实例用独立 gantt 实例（社区版支持多实例）
     this.gantt = Gantt.getGanttInstance()
     this.initGantt()
-    this.gantt.parse(this.tasks)
+    this.gantt.parse(this.normalizedTasks)
     this.rebuildTable()
     this.bindEvents()
   },
@@ -303,7 +426,12 @@ export default {
       if (this.gantt.$root) this.gantt.render()
     },
 
-    /** 由 gantt 数据派生左侧表格树（gantt 是唯一数据源） */
+    /**
+     * 由 gantt 数据 + 外部 tableData 派生左侧表格行：
+     * - 未传 tableData：行 = gantt 派生字段 + tasks 自定义字段透传
+     * - 传入 tableData：行 = 外部行（保留字段与行序）+ gantt 权威字段合并（按 fields.id 匹配），
+     *   外部行没有的新任务自动追加；gantt 变更后回传 'table-data-change'
+     */
     rebuildTable() {
       if (!this.gantt) return
       const g = this.gantt
@@ -311,10 +439,11 @@ export default {
       const fmtD = g.date.date_to_str('%Y-%m-%d')
       const snap = g.serialize()
 
-      const map = {}
-      const nodes = snap.data.map((t) => {
+      // 1) gantt 权威字段（归一化名：id/text/type/start/end/duration/progress）
+      const fieldsById = {}
+      snap.data.forEach((t) => {
         const isMilestone = t.type === 'milestone'
-        const node = {
+        fieldsById[t.id] = {
           id: t.id,
           text: t.text,
           type: t.type || 'task',
@@ -325,30 +454,72 @@ export default {
           progress: Math.round((t.progress || 0) * 100),
           parentId: t.parent || 0
         }
-        map[t.id] = node
-        return node
       })
 
+      // 2) 行来源：外部 tableData（保留外部字段与行序）或 gantt 派生 + tasks 自定义字段透传
+      const external = Array.isArray(this.tableData) ? this.tableData : null
+      let flatRows = []
+      if (external) {
+        const known = {}
+        external.forEach((row) => {
+          if (!row) return
+          const f = fieldsById[row[this.fieldMap.id]]
+          if (!f) return
+          known[f.id] = true
+          flatRows.push(Object.assign({}, row, f))
+        })
+        // 外部行里没有的新任务（如弹窗新增）自动追加
+        snap.data.forEach((t) => {
+          if (!known[t.id]) flatRows.push(Object.assign({}, fieldsById[t.id]))
+        })
+      } else {
+        flatRows = snap.data.map((t) => {
+          const node = Object.assign({}, fieldsById[t.id])
+          const src = this.sourceById[t.id]
+          if (src) {
+            Object.keys(src).forEach((k) => {
+              if (k.charCodeAt(0) === 36 || k in node) return
+              node[k] = src[k]
+            })
+          }
+          return node
+        })
+      }
+
+      // 3) 树形化（父子关系以 gantt 为准）
+      const byId = {}
+      flatRows.forEach((r) => { byId[r.id] = r })
       const tree = []
-      nodes.forEach((n) => {
-        const p = n.parentId && map[n.parentId]
+      flatRows.forEach((r) => {
+        const f = fieldsById[r.id]
+        const p = f && f.parentId && byId[f.parentId]
         if (p) {
           if (!p.children) this.$set(p, 'children', [])
-          p.children.push(n)
+          p.children.push(r)
         } else {
-          tree.push(n)
+          tree.push(r)
         }
       })
 
-      // 首次构建：默认展开全部汇总节点
+      // 4) 首次构建：默认展开全部汇总节点
       if (!this._tableInited) {
-        this.expandedIds = nodes.filter((n) => n.children).map((n) => n.id)
+        this.expandedIds = flatRows.filter((r) => r.children).map((r) => r.id)
         this._tableInited = true
       }
 
-      this.nodeMap = map
-      this.tableData = tree
+      this.nodeMap = byId
+      this.rows = tree
+      this.emitTableDataChange(flatRows)
       this.$nextTick(() => this.restoreTableState())
+    },
+
+    /** 外部传入 tableData 时，gantt 变更后回传合并行（内容未变化不重复回传，避免循环） */
+    emitTableDataChange(flatRows) {
+      if (!Array.isArray(this.tableData)) return
+      const key = JSON.stringify(flatRows, (k, v) => (k === 'children' ? undefined : v))
+      if (key === this._lastRowsKey) return
+      this._lastRowsKey = key
+      this.$emit('table-data-change', JSON.parse(key))
     },
 
     /** 重建表格后恢复展开/选中状态 */
@@ -363,7 +534,7 @@ export default {
           if (n.children) walk(n.children)
         })
       }
-      walk(this.tableData)
+      walk(this.rows)
       if (this.selectedId && this.nodeMap[this.selectedId]) {
         table.setCurrentRow(this.nodeMap[this.selectedId])
       }

@@ -64,19 +64,62 @@ Vue.use(ElementUI) // el-table/el-dialog 由全局注册提供，库本身不内
 ```vue
 <GanttChart
   :tasks="tasks"
+  :fields="fields"
+  :table-data="tableRows"
+  :columns="columns"
   :show-links.sync="showLinks"
   :table-width.sync="tableWidth"
   :gantt-options="{ /* 浅合并覆盖 gantt.config 任意项 */ }"
   @gantt-event="onGanttEvent"
-/>
+  @table-data-change="onRowsChange"
+>
+  <template #col-owner="{ row }">
+    <el-tag size="mini">{{ row.owner }}</el-tag>
+  </template>
+</GanttChart>
 ```
 
-- **Props**：`tasks`(必填)、`rowHeight=36`、`barHeight=20`、`scaleHeight=48`、`skin='material'`、`zoom='day'`、`showLinks`(.sync)、`tableWidth`(.sync)、`readonly`、`ganttOptions`
-- **事件**：`gantt-event`(`{type,message,data}`) + `update:showLinks` / `update:tableWidth`
+- **Props**：`tasks`(必填)、`fields`(字段映射)、`tableData`(外部表格行)、`columns`(列配置)、`rowHeight=36`、`barHeight=20`、`scaleHeight=48`、`skin='material'`、`zoom='day'`、`showLinks`(.sync)、`tableWidth`(.sync)、`readonly`、`ganttOptions`
+- **事件**：`gantt-event`(`{type,message,data}`)、`table-data-change`(合并后全量行)、`update:showLinks` / `update:tableWidth`
 - **方法(refs)**：`getSnapshot()`、`getInstance()`
-- **插槽**：`toolbar-extra`（工具栏右侧追加自定义按钮）
+- **插槽**：`toolbar-extra` + 任意列 `#col-<key>="{ row }"`
 
-以上能力已在独立消费工程（webpack5 + npm 包安装）中端到端验证。
+#### fields 字段映射（数据契约通用化）
+
+使用方的甘特数据字段名不必叫 `text/start_date/...`，通过 `fields` 映射即可：
+
+```js
+// 后端数据：{ taskId, name, begin, days, percent, pid, kind }
+fields: {
+  id: 'taskId', text: 'name', startDate: 'begin', duration: 'days',
+  progress: 'percent', parent: 'pid', type: 'kind'
+}
+```
+
+#### columns 列配置
+
+columns 缺省为内置 6 列（任务名称/开始/结束/工期/进度/操作）。列项：
+
+```js
+{ key: 'text', label: '任务名称', minWidth: 170 }  // key 为内置类型，保留专门渲染
+{ key: 'owner', label: '负责人', width: 90 }       // key 为任务数据字段（含外部字段）
+{ key: 'ops', label: '操作', width: 145 }          // 操作列（readonly 时自动隐藏）
+```
+
+- 内置类型：`text`(树列+里程碑标签) / `start` / `end` / `duration` / `progress`(进度条) / `ops`
+- 自定义字段列：渲染 `row[key]`，可用 `format: row => string` 格式化，或作用域插槽 `#col-<key>` 覆盖（内置列也可覆盖）
+
+#### tableData 外部表格数据
+
+```js
+tableData: [{ taskId: 'T1', owner: '张三' }, ...]  // fields.id 对应任务 id
+```
+
+- 行序与外部一致；日期/工期/进度等以 gantt 为权威合并进同一行；外部字段透传
+- gantt 变更（拖拽/编辑/增删）后 emit `table-data-change`（全量合并行，内容无变化不重复回传），使用方可直接持久化
+- 外部行没有的新任务（如弹窗新增）自动追加到表格
+
+以上能力已在独立消费工程（webpack5 + npm 包安装 + 非标准字段名 + fields 映射 + 自定义列 + 作用域插槽）中端到端验证。
 
 ## 集成到现有工程（源码方式，不想装包时）
 
