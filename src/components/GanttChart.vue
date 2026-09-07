@@ -361,6 +361,8 @@ export default {
       g.config.drag_move = true     // 拖动任务条 → 修改起止日期
       g.config.drag_resize = true   // 拖动任务条两端 → 修改工期
       g.config.drag_progress = true // 拖动任务条里的深色进度段 → 修改进度
+      g.config.drag_links = false   // 显式关闭依赖线拖拽（dhtmlx 默认 true，会在任务条两端渲染连接点）
+      g.config.show_links = false   // 不渲染任何依赖线
 
       // ---- 左侧 grid 由 ElementUI el-table 替代，这里只渲染时间轴 ----
       g.config.layout = {
