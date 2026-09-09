@@ -39,6 +39,16 @@ npm pack            # tarball
 
 映射之外的业务字段**全部透传**进引擎，列与 actions 可直接读取（引擎保留字段 `id/start_date/end_date/duration/parent/progress/type` 除外）。
 
+### 任务条文字：barText（可指定显示内容）
+
+```js
+:bar-text="name"                                    // 显示任务上的 name 字段
+:bar-text="(task) => task.name + ' · ' + task.owner" // 函数完全自定义
+:bar-text="false"                                   // 不显示条上文字
+```
+
+不传时自动回退：`fields.text` 映射 → columns 第一条业务列的值 → 空（保证不出现 "undefined"）。tooltip 同步使用该文字，无文字时显示起止日期。
+
 ### columns：列完全由上层定义
 
 ```js

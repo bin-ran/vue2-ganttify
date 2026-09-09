@@ -106,6 +106,14 @@ export default {
     skin: { type: String, default: 'material' },
     /** 初始缩放：quarter / month / day */
     zoom: { type: String, default: 'day' },
+    /**
+     * 任务条上显示的文字（tooltip 同步使用）：
+     * - 不传：自动——text 映射 → 第一条业务列的值 → 空
+     * - 字符串：任务对象上的字段名，如 "name"
+     * - 函数：(task) => string，完全自定义（可拼接多个字段）
+     * - false：不显示条上文字
+     */
+    barText: { type: [String, Function, Boolean], default: undefined },
     /** 初始 grid 宽度（自绘分割条可拖拽，拖完 emit update:tableWidth） */
     tableWidth: { type: Number, default: 220 },
     readonly: { type: Boolean, default: false },
@@ -264,8 +272,25 @@ export default {
       g.templates.scale_cell_class = cellClass     // 表头刻度格
       g.templates.timeline_cell_class = (item, date) => cellClass(date) // 时间轴列
       const tipFmt = g.date.date_to_str('%Y-%m-%d')
-      g.templates.tooltip_text = (start, end, task) =>
-        task.text || (tipFmt(start) + ' ~ ' + tipFmt(new Date(end.getTime() - 86400000))) // 无 text 映射时显示起止日期
+      const resolveBarText = (task) => {
+        // barText prop 显式指定优先；否则回退链：text 映射 → 主列值（如任务名称列）→ 空
+        const b = this.barText
+        if (b === false || b === '') return ''
+        if (typeof b === 'function') {
+          const out = b(task)
+          return out == null ? '' : String(out)
+        }
+        if (typeof b === 'string' && b) return task[b] == null ? '' : String(task[b])
+        if (task.text != null && task.text !== '') return String(task.text)
+        const k = this._primaryColKey
+        if (k && task[k] != null && String(task[k]) !== '') return String(task[k])
+        return ''
+      }
+      g.templates.task_text = (start, end, task) => resolveBarText(task)
+      g.templates.tooltip_text = (start, end, task) => {
+        const label = resolveBarText(task)
+        return label || (tipFmt(start) + ' ~ ' + tipFmt(new Date(end.getTime() - 86400000)))
+      }
 
       this.applyZoom(this.zoom)
       this.applyColumns()
@@ -361,6 +386,9 @@ export default {
         })
         return def
       })
+      // 主列 = 第一条非 ops 列：任务条文字在无 text 映射时回退显示它的值
+      const primary = list.find((c) => c.key !== 'ops')
+      this._primaryColKey = primary ? primary.key : null
     },
 
     /** 载入业务行：parse + 重建 内部id→业务行 映射 + 时间轴留白 */

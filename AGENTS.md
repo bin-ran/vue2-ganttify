@@ -48,6 +48,9 @@ lib/ dist/                    # 构建产物（gitignore）
      start/end；`format(task)` = 原生 template；`ganttOptions.columns` 完全接管
    - **操作列 actions 全部由上层定义**：`{text, handler(row, task)}`，组件不内置动作；
      按钮经**事件委托**（容器 click + `gantt.locate(e)`）触发
+   - **任务条文字 `barText` 可指定**：不传=自动（text 映射→第一条业务列→空，杜绝
+     dhtmlx 默认模板的 "undefined"）；字符串=字段名；函数=(task)=>string；false=不显示；
+     tooltip 同步该文字，无文字显示起止日期
 3. **编辑 UI 完全由上层实现**：内置 el-dialog 已移除（TaskDialog.vue 已删除）；
    双击行/条 → emit `task-dblclick(row, task)`；键盘 Delete 默认拦截
    （删除只能走 `removeTask(row)` 代理方法，`_allowDelete` 标记放行）；
@@ -146,7 +149,7 @@ node consumer-generic-verify.js   # 消费工程，端口 8130
 - 交流用中文；先给结论再给细节；不确定就说不确定
 - 不可逆操作（删除/重置/覆盖）先确认
 
-## 8. Git 历史（main，均未推送）
+## 8. Git 历史（main，已推送远端）
 
 ```
 c005881 chore: 项目改名 vue2-ganttify

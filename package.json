@@ -1,6 +1,6 @@
 {
   "name": "vue2-ganttify",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DHTMLX Gantt(社区版/MIT) × ElementUI el-table × Vue 2.6 甘特图组件",
   "license": "MIT",
   "keywords": [
@@ -23,7 +23,9 @@
   "unpkg": "lib/vue2-ganttify.umd.min.js",
   "files": [
     "lib",
-    "src"
+    "src/index.js",
+    "src/components",
+    "!lib/demo.html"
   ],
   "dependencies": {
     "core-js": "^3.8.3"
