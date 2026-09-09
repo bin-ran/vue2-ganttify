@@ -5,6 +5,7 @@
  */
 const puppeteer = require('puppeteer-core')
 const fs = require('fs')
+const REPO_PKG = require('D:/pi/vue2-ganttify/package.json')
 const PKG_VERSION = require('D:/tmp/ganttify-vue-app/node_modules/vue2-ganttify/package.json').version
 const CHROME = process.env.CHROME_PATH ||
   ['C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -32,7 +33,10 @@ const CHROME = process.env.CHROME_PATH ||
     const rows = [...document.querySelectorAll('.gantt_grid_data .gantt_row')]
     const rowTexts = rows.map((r) => r.textContent.trim())
     const barTexts = [...document.querySelectorAll('.gantt_task_line')].map((b) => b.textContent.trim())
+    const toolbarBtns = [...document.querySelectorAll('.gantt-toolbar button')].map((b) => b.textContent.trim())
+    const zoomBtns = [...document.querySelectorAll('.gantt-toolbar .el-radio-button')].map((b) => b.textContent.trim())
     return {
+      toolbarBtns, zoomBtns,
       heads, rows: rows.length, rowTexts, engineCount: g ? g.getTaskCount() : 0,
       treeIcons: document.querySelectorAll('.gantt_tree_icon').length,
       barTexts
@@ -40,11 +44,15 @@ const CHROME = process.env.CHROME_PATH ||
   })
   console.log(JSON.stringify({ heads: m.heads, rows: m.rows, engineCount: m.engineCount, treeIcons: m.treeIcons }, null, 2))
 
-  const okVer = PKG_VERSION === '0.1.1'
+  const okVer = PKG_VERSION === REPO_PKG.version // 与仓库版本联动，不再硬编码
   const okHeader = m.heads.join('|') === '任务名称|开始|结束|操作'
   const okRows = m.rows === 5 && m.engineCount === 5
   const okFlat = m.treeIcons === 0
   const okCells = m.rowTexts.every((t) => t.includes('2026-09-')) // 业务列含开始日期
+  // 缩放切换器两种合法形态：隐藏（zoomLevels=[]）或配置子集（如 月|日）；无内置深色/导出按钮
+  const zoomMode = m.zoomBtns.join('|')
+  const okToolbar = !m.toolbarBtns.some((t) => t.includes('深色') || t.includes('JSON')) &&
+    (zoomMode === '' || zoomMode === '月|日' || zoomMode === '季|月|日')
   const okBarText = m.barTexts.length > 0 && m.barTexts.every((t) => t.includes(' · ')) &&
     m.barTexts.every((t) => !t.includes('undefined')) // barText 函数形态：名称 · 负责人，且无 undefined
 
@@ -95,10 +103,10 @@ const CHROME = process.env.CHROME_PATH ||
   const okDel = flow.confirmSeen === true && flow.rowsAfterDelete === 4 // 删除提示在页脚 DOM（last.type=delete）
   const okAdd = flow.addTitle === '新增任务'
 
-  console.log(`包版本(npm源): ${okVer ? 'PASS' : 'FAIL'}(${PKG_VERSION}) | 表头: ${okHeader ? 'PASS' : 'FAIL'} | 行数5: ${okRows ? 'PASS' : 'FAIL'} | 平铺: ${okFlat ? 'PASS' : 'FAIL'} | 内容: ${okCells ? 'PASS' : 'FAIL'} | 任务条文字: ${okBarText ? 'PASS' : 'FAIL'}`)
+  console.log(`包版本: ${okVer ? 'PASS' : 'FAIL'}(${PKG_VERSION}) | 表头: ${okHeader ? 'PASS' : 'FAIL'} | 行数5: ${okRows ? 'PASS' : 'FAIL'} | 平铺: ${okFlat ? 'PASS' : 'FAIL'} | 内容: ${okCells ? 'PASS' : 'FAIL'} | 任务条文字: ${okBarText ? 'PASS' : 'FAIL'} | 工具栏: ${okToolbar ? 'PASS' : 'FAIL'}(${m.zoomBtns.join('/')})`)
   console.log(`双击弹窗: ${okDbl ? 'PASS' : 'FAIL'} | 编辑动作: ${okEdit ? 'PASS' : 'FAIL'} | 删除流: ${okDel ? 'PASS' : 'FAIL'} | 新增弹窗: ${okAdd ? 'PASS' : 'FAIL'}`)
 
-  if (!okVer || !okHeader || !okRows || !okFlat || !okCells || !okBarText || !okDbl || !okEdit || !okDel || !okAdd || errors.length) {
+  if (!okVer || !okHeader || !okRows || !okFlat || !okCells || !okBarText || !okToolbar || !okDbl || !okEdit || !okDel || !okAdd || errors.length) {
     console.log('== 页面错误 ==\n' + (errors.join('\n') || 'none'))
     process.exit(2)
   }

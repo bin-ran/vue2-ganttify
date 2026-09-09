@@ -3,18 +3,17 @@
     <!-- 工具栏（ElementUI） -->
     <div class="gantt-toolbar">
       <div class="tb-left">
-        <el-radio-group v-model="zoom" size="mini" @change="applyZoom">
+        <el-radio-group v-if="zoomButtons.length" v-model="zoom" size="mini" @change="applyZoom">
           <el-radio-button
-            v-for="item in zoomLevels"
+            v-for="item in zoomButtons"
             :key="item.key"
             :label="item.key"
           >{{ item.label }}</el-radio-button>
         </el-radio-group>
       </div>
       <div class="tb-right">
-        <el-button size="mini" @click="toggleSkin">{{ skin === 'dark' ? '浅色主题' : '深色主题' }}</el-button>
-        <el-button size="mini" icon="el-icon-download" @click="exportSnapshot">导出 JSON</el-button>
-        <!-- 使用方追加自定义工具栏按钮（如“新增”，配合 addTask 代理方法） -->
+        <!-- 使用方追加自定义工具栏按钮（如“新增”，配合 addTask 代理方法）；
+             导出数据用 getSnapshot() 自行实现 -->
         <slot name="toolbar-extra"></slot>
       </div>
     </div>
@@ -104,8 +103,14 @@ export default {
     scaleHeight: { type: Number, default: 48 },
     /** 皮肤：material / dark 等 */
     skin: { type: String, default: 'material' },
-    /** 初始缩放：quarter / month / day */
+    /** 初始缩放：quarter / month / day（应为 zoomLevels 之一） */
     zoom: { type: String, default: 'day' },
+    /**
+     * 缩放级别按钮（季/月/日）显示哪些、按什么顺序，如 ['month', 'day']。
+     * 空数组 → 不渲染缩放切换器，时间轴固定为 zoom 指定的级别。
+     * 取值仅支持 quarter / month / day，未知项自动忽略。
+     */
+    zoomLevels: { type: Array, default: () => ['quarter', 'month', 'day'] },
     /**
      * 任务条上显示的文字（tooltip 同步使用）：
      * - 不传：自动——text 映射 → 第一条业务列的值 → 空
@@ -123,20 +128,24 @@ export default {
 
   data() {
     return {
-      zoomLevels: [
-        { key: 'quarter', label: '季' },
-        { key: 'month', label: '月' },
-        { key: 'day', label: '日' }
-      ],
       // 内部镜像（props 只作初始值，变更走 .sync 事件）
       zoom: this.zoom,
-      skin: this.skin,
       innerTableWidth: this.tableWidth,
       resizing: false
     }
   },
 
   computed: {
+    /** 缩放级别按钮：按 zoomLevels prop 过滤/排序（未知 key 忽略；空数组 → 不渲染切换器） */
+    zoomButtons() {
+      const meta = {
+        quarter: { key: 'quarter', label: '季' },
+        month: { key: 'month', label: '月' },
+        day: { key: 'day', label: '日' }
+      }
+      return (this.zoomLevels || []).map((k) => meta[k]).filter(Boolean)
+    },
+
     /** 字段映射表（合并默认值） */
     fieldMap() {
       return Object.assign({}, DEFAULT_FIELDS, this.fields || {})
@@ -578,17 +587,6 @@ export default {
     teardownResizer() {
       document.removeEventListener('mousemove', this.onResizerMove)
       document.removeEventListener('mouseup', this.onResizerMouseup)
-    },
-
-    // ---------- 工具栏 ----------
-    toggleSkin() {
-      this.skin = this.skin === 'dark' ? 'material' : 'dark'
-      if (this.gantt) this.gantt.setSkin(this.skin)
-    },
-
-    exportSnapshot() {
-      const snapshot = this.getSnapshot()
-      console.log('[Gantt 全量数据]', JSON.stringify(snapshot, null, 2))
     },
 
     // ---------- 引擎代理方法（供上层自定义操作/工具栏调用） ----------

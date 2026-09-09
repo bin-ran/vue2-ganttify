@@ -48,6 +48,10 @@ lib/ dist/                    # 构建产物（gitignore）
      start/end；`format(task)` = 原生 template；`ganttOptions.columns` 完全接管
    - **操作列 actions 全部由上层定义**：`{text, handler(row, task)}`，组件不内置动作；
      按钮经**事件委托**（容器 click + `gantt.locate(e)`）触发
+   - **工具栏只留缩放切换 + toolbar-extra 插槽**：深色主题/导出 JSON 按钮已删
+     （皮肤由 `skin` prop 定初始值；导出用 `getSnapshot()` 上层自行实现）；
+     `zoomLevels` prop 配置季/月/日按钮的取舍与顺序（空数组=隐藏切换器，
+     固定 `zoom` 级别）
    - **任务条文字 `barText` 可指定**：不传=自动（text 映射→第一条业务列→空，杜绝
      dhtmlx 默认模板的 "undefined"）；字符串=字段名；函数=(task)=>string；false=不显示；
      tooltip 同步该文字，无文字显示起止日期
