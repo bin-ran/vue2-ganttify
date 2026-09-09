@@ -14,12 +14,11 @@
  *   import 'dhtmlx-gantt-vue2/lib/dhtmlx-gantt-vue2.css'
  */
 import GanttChart from './components/GanttChart.vue'
-import TaskDialog from './components/TaskDialog.vue'
 import pkg from '../package.json'
 
 const version = pkg.version
 
-const components = [GanttChart, TaskDialog]
+const components = [GanttChart]
 
 const install = (Vue) => {
   components.forEach((component) => {
@@ -32,7 +31,7 @@ if (typeof window !== 'undefined' && window.Vue) {
   install(window.Vue)
 }
 
-export { install, version, GanttChart, TaskDialog }
+export { install, version, GanttChart }
 
 export default {
   version,

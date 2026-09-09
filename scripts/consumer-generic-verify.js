@@ -1,7 +1,8 @@
 /**
- * 消费工程回归验证（dhtmlx 原生 grid 版）
- * 断言：自定义列（无"工期"有"负责人"）、8 行、自定义字段列(format)渲染、
- *       字段映射日期、任务条数量、控制台零报错
+ * 消费工程回归验证（最小契约版）：
+ * 数据无 id（内部用行下标）、平铺（无 fields.parent）、fields 只有起止时间；
+ * 断言：自定义列（任务名称/负责人/操作）、8 行、平铺无树形箭头、
+ *       操作列自定义动作 handler（透传字段可读）、双击事件、任务条、控制台零报错
  */
 const puppeteer = require('puppeteer-core')
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
@@ -12,14 +13,15 @@ const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
   })
   const page = await browser.newPage()
   const errors = []
-  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + String(e)))
   const logs = []
+  page.on('pageerror', (e) => errors.push('PAGEERROR: ' + String(e)))
   page.on('console', (m) => { logs.push(m.text()); if (m.type() === 'error') errors.push(m.text()) })
   await page.setViewport({ width: 1600, height: 800 })
   await page.goto('http://127.0.0.1:8130', { waitUntil: 'domcontentloaded', timeout: 30000 })
   await new Promise((r) => setTimeout(r, 2500))
 
   const m = await page.evaluate(() => {
+    const engineCount = document.querySelector('.gantt-wrapper').__vue__.gantt.getTaskCount()
     const heads = [...document.querySelectorAll('.gantt_grid_head_cell')].map((c) => c.textContent.trim())
     const rows = [...document.querySelectorAll('.gantt_grid_data .gantt_row')]
     const rowTexts = rows.map((r) => r.textContent.trim())
@@ -29,46 +31,46 @@ const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
     })
     const barDates = [...document.querySelectorAll('.gantt_task_line')].map((b) => b.getAttribute('aria-label') || '')
     return {
-      heads, rows: rows.length, ownerCells, rowTexts, bars: barDates.length,
-      firstBarText: (barDates.find((t) => t.includes('一期')) || '').slice(0, 60)
+      heads, rows: rows.length, ownerCells, rowTexts, bars: barDates.length, engineCount,
+      treeIcons: document.querySelectorAll('.gantt_tree_icon').length,
+      firstBarText: (barDates[0] || '').slice(0, 60)
     }
   })
-  console.log(JSON.stringify({ heads: m.heads, rows: m.rows, ownerCells: m.ownerCells, rowTexts: m.rowTexts, bars: m.bars }, null, 2))
+  console.log(JSON.stringify({ heads: m.heads, rows: m.rows, ownerCells: m.ownerCells, bars: m.bars, treeIcons: m.treeIcons }, null, 2))
 
-  // ---- 操作列：自定义按钮渲染 + handler 触发（含透传字段）+ 内置编辑弹窗 ----
+  const okHeader = m.heads.join('|') === '任务名称|负责人|操作'
+  const okRows = m.rows === 8
+  const okFlat = m.treeIcons === 0 // 无 fields.parent → 平铺无展开箭头
+  const okBars = m.engineCount === 8 && m.bars >= 5 // 任务条按视口渲染（smart rendering），引擎计数须为 8
+  const okOwner = m.ownerCells.filter((t) => t).length >= 8
+  const okDate = m.firstBarText.includes('2026-09-01')
+
+  // ---- 操作列：自定义动作 handler（透传字段可读）+ 双击事件 ----
   const opsProbe = await page.evaluate(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    // 点击会触发 grid 重渲染，必须每次重新查询节点（旧节点已脱离 DOM）
+    // 点击会触发 grid 重渲染，每次必须重新查询节点（旧节点已脱离 DOM）
     const freshRow = () => document.querySelector('.gantt_grid_data .gantt_row')
     const byText = (t) => [...freshRow().querySelectorAll('[data-ops-action]')].find((b) => b.textContent.trim() === t)
-    const detail = byText('详情')
-    if (detail) detail.click()
-    await wait(300)
-    const edit = byText('编辑')
-    let editTitle = null
-    if (edit) {
-      edit.click(); await wait(400)
-      const w = document.querySelector('.el-dialog__wrapper')
-      editTitle = w && w.style.display !== 'none' ? (document.querySelector('.el-dialog__title') || {}).textContent || '' : null
-      const c = [...document.querySelectorAll('.el-dialog__footer button')].find((b) => b.textContent.includes('取'))
-      if (c) c.click(); await wait(300)
-    }
     const btns = [...freshRow().querySelectorAll('[data-ops-action]')].map((b) => b.textContent.trim())
-    return { btns, editTitle }
+    const assign = byText('指派')
+    if (assign) assign.click()
+    await wait(300)
+    // 双击行 → 组件 emit task-dblclick → 上层（本页只打印）
+    const rowEl = document.querySelector('.gantt_grid_data .gantt_row')
+    rowEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    await wait(300)
+    return { btns }
   })
-  const okOpsLog = logs.some((t) => t.includes('[consumer] 详情') && t.includes('owner='))
-  const okOps = okOpsLog && opsProbe.editTitle === '编辑任务' && opsProbe.btns.join('|') === '编辑|详情'
-  console.log(`操作列: ${okOps ? 'PASS' : 'FAIL'} | ${JSON.stringify(opsProbe)} | handler日志: ${okOpsLog ? 'PASS' : 'FAIL'}`)
+  const okAssign = logs.some((t) => t.includes('[consumer] 指派') && t.includes('owner'))
+  const okDbl = logs.some((t) => t.includes('[consumer] task-dblclick') && t.includes('begin'))
+  const okOps = opsProbe.btns.join('|') === '指派|延期一天'
+  console.log(`操作列: ${okOps ? 'PASS' : 'FAIL'} | ${JSON.stringify(opsProbe)} | handler(含透传字段): ${okAssign ? 'PASS' : 'FAIL'} | 双击事件: ${okDbl ? 'PASS' : 'FAIL'}`)
 
-  const okHeader = m.heads.join('|') === '任务名称|负责人|开始|结束|操作' // 自定义列（无工期、无进度）
-  const okRows = m.rows === 8
-  const okBars = m.bars >= 6
-  const okOwner = m.ownerCells.filter((t) => t).length >= 8 // 自定义字段经透传进引擎
-  const okDate = m.firstBarText.includes('2026-09-01')
-  const okCells = m.rowTexts.length === 8 && m.rowTexts.every((t) => t.includes('2026-09-'))
-  console.log(`表头(自定义列): ${okHeader ? 'PASS' : 'FAIL'} | 行数8: ${okRows ? 'PASS' : 'FAIL'} | 任务条: ${okBars ? 'PASS' : 'FAIL'} | 自定义字段列(owner): ${okOwner ? 'PASS' : 'FAIL'} | 字段映射日期: ${okDate ? 'PASS' : 'FAIL'} | 内容: ${okCells ? 'PASS' : 'FAIL'}`)
+  const owners = ['张三', '李四', '王五', '赵六']
+  const okCells = m.rowTexts.length === 8 && m.rowTexts.every((t) => owners.some((o) => t.includes(o)))
+  console.log(`表头(自定义列): ${okHeader ? 'PASS' : 'FAIL'} | 行数8: ${okRows ? 'PASS' : 'FAIL'} | 平铺: ${okFlat ? 'PASS' : 'FAIL'} | 任务条: ${okBars ? 'PASS' : 'FAIL'} | 负责人列: ${okOwner ? 'PASS' : 'FAIL'} | 起止日期: ${okDate ? 'PASS' : 'FAIL'} | 内容: ${okCells ? 'PASS' : 'FAIL'}`)
 
-  if (!okHeader || !okRows || !okBars || !okOwner || !okDate || !okCells || !okOps || errors.length) {
+  if (!okHeader || !okRows || !okFlat || !okBars || !okOwner || !okDate || !okCells || !okOps || !okAssign || !okDbl || errors.length) {
     console.log('== 页面错误 ==\n' + (errors.join('\n') || 'none'))
     process.exit(2)
   }

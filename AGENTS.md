@@ -5,7 +5,9 @@
 
 ## 1. 项目定位
 
-**DHTMLX Gantt 社区版(MIT) × Vue 2.6.14 甘特图组件库**。
+**Vue 2.6 时间可视化辅助组件**（底层 DHTMLX Gantt 社区版 MIT × Vue 2.6.14）。
+组件是**辅助工具**：业务数据只要有开始/结束时间即可挂甘特视图；名称、进度、层级、
+操作、编辑 UI 全部由上层定义。
 本仓库既是可运行的 demo，也是 npm 包本体：`dhtmlx-gantt-vue2@0.1.0`（private），
 消费方通过 tarball 安装，只依赖 peer：`vue@2.6.14` / `element-ui@2.15.14`（仅工具栏与弹窗）/
 `dhtmlx-gantt@^10.0.0`。
@@ -35,16 +37,24 @@ lib/ dist/                    # 构建产物（gitignore）
 1. **左侧表格就是 dhtmlx 原生 grid**（用户明确要求，已废弃 el-table 混合方案）：
    `gantt.config.layout` 为 grid + timeline 双视图共享 `scrollVer/scrollHor` 滚动条，
    不存在第二份数据、不需要滚动同步与行高对齐。gantt 实例是唯一数据源。
-2. **数据契约两层**（组件不绑定业务字段名）：
-   - `fields`：使用方字段名 → 语义字段（id/text/startDate/endDate/duration/progress/parent）映射；
-     映射之外的字段**透传**进 gantt 任务对象（`type` 除外），grid 自定义列才能取到
-   - `columns`：`{key,label,width,align,format}` → 翻译成 dhtmlx 原生 grid 列；
-     内置 key `text/start/end/duration/progress/ops` 带内置模板；ops 列由 `actions`
-     配置动作（内置 edit/append/remove 复用内置弹窗与确认，自定义动作给
-     `handler(task)`），按钮经**事件委托**（容器 click 监听 + `gantt.locate(e)`）触发；
-     完全原生控制走 `ganttOptions.columns`
-3. **依赖线与里程碑已整体移除**：数据格式仅 `{ data: Task[] }`，字段映射无 `type`，
-   `drag_links=false`/`show_links=false` 显式关闭（默认 true，删配置行≠关闭）。
+2. **数据契约（稳定契约，最小必填）**：
+   - `tasks` 收**业务行数组**（不是 dhtmlx 的 {data,links} 包装）
+   - `fields`：必填只有 `startDate`/`endDate`（结束含当天，内部换算 duration）；
+     可选 `id`（缺省=行下标+1，业务 id 为空/0 降级）、`text`（tooltip/aria 显示名，
+     缺省 tooltip 显示起止日期）、`parent`（不传=平铺无箭头）、`progress`（0~1，不传无进度段）
+   - 映射之外的业务字段**透传**进引擎（引擎保留字段
+     id/start_date/end_date/duration/parent/progress/type 除外）
+   - `columns`：不传只显示开始/结束两列；key 直接用业务字段名；内置便捷 key 仅
+     start/end；`format(task)` = 原生 template；`ganttOptions.columns` 完全接管
+   - **操作列 actions 全部由上层定义**：`{text, handler(row, task)}`，组件不内置动作；
+     按钮经**事件委托**（容器 click + `gantt.locate(e)`）触发
+3. **编辑 UI 完全由上层实现**：内置 el-dialog 已移除（TaskDialog.vue 已删除）；
+   双击行/条 → emit `task-dblclick(row, task)`；键盘 Delete 默认拦截
+   （删除只能走 `removeTask(row)` 代理方法，`_allowDelete` 标记放行）；
+   dhtmlx 灯箱始终拦截。数据更新两条路：代理方法 updateTask/addTask/removeTask
+   （不触发整表重载）或替换 tasks 数组引用（重载）。
+4. **依赖线与里程碑已整体移除**：`drag_links=false`/`show_links=false` 显式关闭
+   （默认 true，删配置行≠关闭）；fields 无 type/parent 等预设语义。
 4. **分割条是自绘的**：layout 的 `resizer` 视图是 **PRO 功能**（社区版报
    `getPrevSibling is not a function`）。自绘 div 绝对定位在 grid 右缘，
    拖动时 `config.grid_width = w; gantt.setSizes()`；grid 实际宽度以 DOM 实测为准
@@ -59,10 +69,11 @@ lib/ dist/                    # 构建产物（gitignore）
 
 ## 4. API 速览（详见 README.md）
 
-- Props：`tasks`(必填) `fields` `columns` `rowHeight=36` `barHeight=20`
-  `scaleHeight=48` `skin='material'` `zoom='day'` `tableWidth=520`(.sync) `readonly` `ganttOptions`
-- 事件：`gantt-event`(`{type,message,data}`)、`update:tableWidth`
-- 方法(refs)：`getSnapshot()`、`getInstance()`
+- Props：`tasks`(业务行数组, 必填) `fields` `columns` `rowHeight=36` `barHeight=20`
+  `scaleHeight=48` `skin='material'` `zoom='day'` `tableWidth=220`(.sync) `readonly` `ganttOptions`
+- 事件（具名）：`task-click(row,task)` `task-dblclick(row,task)`
+  `task-drag({type,row,task,startDate,endDate})` `update:tableWidth`
+- 方法(refs)：`getSnapshot()` `getInstance()` `addTask(row)` `updateTask(row)` `removeTask(row)`
 - 插槽：`toolbar-extra`
 
 ## 5. 构建与验证流程（每次改动的标准闭环）
@@ -120,6 +131,11 @@ node consumer-generic-verify.js   # 消费工程，端口 8130
 10. **grid 点击会触发重渲染（selectTask）**：puppeteer 里点过一次后，之前捕获的行/按钮节点
    已脱离 DOM，再 `.click()` 派发在游离节点上永远到不了容器监听器——每次点击前必须
    重新查询节点（verify 脚本里的 `freshRow()` 模式）
+11. **内部 id 不能为 0**：dhtmlx 以 parent=0 表示根节点，id=0 的任务会形成自身父子环
+   （parse 报 Cyclic reference、页面挂死）。行下标 id 必须 +1；业务 id 为空/0 时降级
+12. **映射源字段会被消耗成引擎字段**（如 begin → start_date+duration）：
+   业务字段若与引擎保留字段撞名（start_date/end_date/duration/...）不透传；
+   业务列想显示原始值就用业务字段名做 column key（透传后可用）
 
 ## 7. 协作约定（用户明确要求）
 
@@ -133,6 +149,8 @@ node consumer-generic-verify.js   # 消费工程，端口 8130
 ## 8. Git 历史（main，均未推送）
 
 ```
+1885bfc refactor: 定位改为时间可视化辅助组件，数据契约最小化一次到位
+3517f60 refactor: 左侧表格回归 dhtmlx 原生 grid，移除 el-table 混合方案
 b3dde17 docs: 补充 Agent 交接文档（AGENTS.md）
 a3f5456 test: 收编 puppeteer 回归脚本入仓并补环境重建指引
 6c392fa refactor: 移除里程碑概念
@@ -149,8 +167,9 @@ feab1f9 feat: 时间轴两侧留白，修复拖到数据边界被顶住
 
 ## 9. 当前状态与待办
 
-- 已完成（本次改版）：左侧回归 dhtmlx 原生 grid；自绘分割条；fields/columns 契约保留；
-  tableData/table-data-change/#col-<key> 插槽随 el-table 一并移除
+- 已完成（辅助组件改版）：tasks 收业务行数组；fields 瘦身（必填仅起止，id/text/parent/progress
+  可选）；内置 el-dialog 移除（TaskDialog 删除）、双击/操作列全事件化；
+  actions 全部上层定义；事件拆具名；键盘 Delete 默认拦截
 - 已验证能力：树形展开/收起、行点击/双击联动、拖拽改期/工期/进度、双击编辑（el-dialog）、
   自绘分割条拖宽、季/月/日缩放、今日高亮、周末底色、深色主题、按住空白平移、
   fields 映射、自定义字段透传、columns 自定义列、时间轴留白

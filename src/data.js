@@ -1,24 +1,18 @@
 /**
- * 示例数据
+ * 业务数据示例：字段名完全自定义（name/begin/end/pid/percent/owner），
+ * 组件通过 fields 映射只认 起始/结束 时间，其余字段透传进引擎供列与 actions 使用。
  *
- * 任务字段：
- *   id / text / start_date('YYYY-MM-DD'，与组件里 date_format 一致)
- *   duration(天数) / progress(0~1) / parent(父任务 id) / open(默认展开)
- *   type 省略时：有子任务的节点自动按“项目(汇总)”渲染（组件里开了 auto_types）
- *
- * 依赖字段：
- *   id / source / target / type
+ * - begin/end：开始/结束日期（含当天）——组件唯一必需的两个字段
+ * - id：业务主键（经 fields.id 映射；不配置映射时组件用行下标当内部 id）
+ * - pid：父级 id（经 fields.parent 映射；不配置则为平铺列表，无展开箭头）
+ * - percent：进度，值域 0~1（经 fields.progress 映射；不配置则任务条无进度段）
  */
-export default {
-  data: [
-    { id: 1, text: '一期：核心功能', start_date: '2026-09-01', duration: 12, progress: 0.5, open: true },
-    { id: 2, text: '需求调研', start_date: '2026-09-01', duration: 4, progress: 1, parent: 1 },
-    { id: 3, text: '交互原型', start_date: '2026-09-04', duration: 4, progress: 0.8, parent: 1 },
-    { id: 4, text: '前后端联调', start_date: '2026-09-09', duration: 4, progress: 0.2, parent: 1 },
-
-    { id: 5, text: '二期：上线准备', start_date: '2026-09-14', duration: 9, progress: 0, open: true },
-    { id: 6, text: '测试回归', start_date: '2026-09-14', duration: 5, progress: 0, parent: 5 },
-    { id: 7, text: '发布上线', start_date: '2026-09-21', duration: 2, progress: 0, parent: 5 },
-    { id: 8, text: '上线评审会', start_date: '2026-09-23', duration: 1, progress: 0, parent: 5 }
-  ]
-}
+export default [
+  { id: 1, name: '一期：核心功能', begin: '2026-09-01', end: '2026-09-12', pid: 0, percent: 0.5, owner: '张三' },
+  { id: 2, name: '需求调研', begin: '2026-09-01', end: '2026-09-04', pid: 1, percent: 1, owner: '李四' },
+  { id: 3, name: '交互原型', begin: '2026-09-04', end: '2026-09-07', pid: 1, percent: 0.5, owner: '王五' },
+  { id: 4, name: '前后端联调', begin: '2026-09-09', end: '2026-09-12', pid: 1, percent: 0.2, owner: '赵六' },
+  { id: 5, name: '二期：上线准备', begin: '2026-09-14', end: '2026-09-23', pid: 0, percent: 0, owner: '张三' },
+  { id: 6, name: '测试回归', begin: '2026-09-14', end: '2026-09-18', pid: 5, percent: 0, owner: '李四' },
+  { id: 7, name: '发布上线', begin: '2026-09-21', end: '2026-09-22', pid: 5, percent: 0, owner: '王五' }
+]
