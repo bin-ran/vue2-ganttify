@@ -8,7 +8,7 @@
 **Vue 2.6 时间可视化辅助组件**（底层 DHTMLX Gantt 社区版 MIT × Vue 2.6.14）。
 组件是**辅助工具**：业务数据只要有开始/结束时间即可挂甘特视图；名称、进度、层级、
 操作、编辑 UI 全部由上层定义。
-本仓库既是可运行的 demo，也是 npm 包本体：`dhtmlx-gantt-vue2@0.1.0`（private），
+本仓库既是可运行的 demo，也是 npm 包本体：`vue2-ganttify@0.1.0`（private），
 消费方通过 tarball 安装，只依赖 peer：`vue@2.6.14` / `element-ui@2.15.14`（仅工具栏与弹窗）/
 `dhtmlx-gantt@^10.0.0`。
 
@@ -84,17 +84,17 @@ npm run build
 # 组件库构建（产出 lib/*.common/umd/umd.min + css）
 npm run build:lib
 # 打 tarball
-npm pack   # → dhtmlx-gantt-vue2-0.1.0.tgz
+npm pack   # → vue2-ganttify-0.1.0.tgz
 ```
 
 消费工程验证（D:/tmp/lib-consumer，webpack5+vue-loader15 干净工程）：
 
 ```bash
 # ⚠️ 关键坑：file:/tarball 内容变了 npm install 不会重新解包，必须手动：
-rm -rf node_modules/dhtmlx-gantt-vue2
-mkdir -p node_modules/dhtmlx-gantt-vue2
-tar -xzf /d/pi/dhtmlx-gantt-vue2-demo/dhtmlx-gantt-vue2-0.1.0.tgz \
-    -C node_modules/dhtmlx-gantt-vue2 --strip-components=1
+rm -rf node_modules/vue2-ganttify
+mkdir -p node_modules/vue2-ganttify
+tar -xzf /d/pi/dhtmlx-gantt-vue2-demo/vue2-ganttify-0.1.0.tgz \
+    -C node_modules/vue2-ganttify --strip-components=1
 npm run build
 ```
 
@@ -149,6 +149,7 @@ node consumer-generic-verify.js   # 消费工程，端口 8130
 ## 8. Git 历史（main，均未推送）
 
 ```
+c005881 chore: 项目改名 vue2-ganttify
 1885bfc refactor: 定位改为时间可视化辅助组件，数据契约最小化一次到位
 3517f60 refactor: 左侧表格回归 dhtmlx 原生 grid，移除 el-table 混合方案
 b3dde17 docs: 补充 Agent 交接文档（AGENTS.md）

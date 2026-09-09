@@ -1,17 +1,17 @@
 /**
- * dhtmlx-gantt-vue2 组件库入口
+ * vue2-ganttify 组件库入口
  *
  * 使用方式一：整库注册
- *   import DhtmlxGanttVue from 'dhtmlx-gantt-vue2'
- *   Vue.use(DhtmlxGanttVue)
+ *   import Vue2Ganttify from 'vue2-ganttify'
+ *   Vue.use(Vue2Ganttify)
  *
  * 使用方式二：按需引入
- *   import { GanttChart } from 'dhtmlx-gantt-vue2'
+ *   import { GanttChart } from 'vue2-ganttify'
  *   export default { components: { GanttChart } }
  *
  * 别忘了引入样式：
  *   import 'element-ui/lib/theme-chalk/index.css'
- *   import 'dhtmlx-gantt-vue2/lib/dhtmlx-gantt-vue2.css'
+ *   import 'vue2-ganttify/lib/vue2-ganttify.css'
  */
 import GanttChart from './components/GanttChart.vue'
 import pkg from '../package.json'

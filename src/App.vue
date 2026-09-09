@@ -1,7 +1,7 @@
 <template>
   <div class="demo-page">
     <header class="demo-head">
-      <h1>甘特图辅助组件 × Vue 2.6 演示</h1>
+      <h1>vue2-ganttify · 时间可视化辅助组件（Vue 2.6）</h1>
       <p class="demo-tips">
         甘特图只是辅助：数据只有“名称/起止时间”是必需的，其他字段全部自定义。
         左侧为 dhtmlx 原生表格（树形展开/收起、双击行打开编辑——由本页自行实现）；

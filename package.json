@@ -1,5 +1,5 @@
 {
-  "name": "dhtmlx-gantt-vue2",
+  "name": "vue2-ganttify",
   "version": "0.1.0",
   "private": true,
   "description": "DHTMLX Gantt(社区版/MIT) × ElementUI el-table × Vue 2.6 甘特图组件",
@@ -9,16 +9,19 @@
     "vue2",
     "gantt",
     "dhtmlx",
+    "timeline",
     "element-ui",
-    "甘特图"
+    "vue2",
+    "甘特图",
+    "时间轴"
   ],
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",
-    "build:lib": "vue-cli-service build --target lib --name dhtmlx-gantt-vue2 src/index.js"
+    "build:lib": "vue-cli-service build --target lib --name vue2-ganttify src/index.js"
   },
-  "main": "lib/dhtmlx-gantt-vue2.common.js",
-  "unpkg": "lib/dhtmlx-gantt-vue2.umd.min.js",
+  "main": "lib/vue2-ganttify.common.js",
+  "unpkg": "lib/vue2-ganttify.umd.min.js",
   "files": [
     "lib",
     "src"
