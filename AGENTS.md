@@ -1,13 +1,14 @@
 # AGENTS.md — Agent 交接文档
 
 > 本文档面向接手本项目的 AI Agent / 新开发者。读完即可独立开展工作和回归验证。
-> 最后更新：2026-09-07，对应提交 `6c392fa`（main，未推送远端）。
+> 最后更新：2026-09-07（改版：左侧表格回归 dhtmlx 原生 grid）。
 
 ## 1. 项目定位
 
-**DHTMLX Gantt 社区版(MIT) × ElementUI el-table × Vue 2.6.14 甘特图组件库**。
+**DHTMLX Gantt 社区版(MIT) × Vue 2.6.14 甘特图组件库**。
 本仓库既是可运行的 demo，也是 npm 包本体：`dhtmlx-gantt-vue2@0.1.0`（private），
-消费方通过 tarball 安装，只依赖 peer：`vue@2.6.14` / `element-ui@2.15.14` / `dhtmlx-gantt@^10.0.0`。
+消费方通过 tarball 安装，只依赖 peer：`vue@2.6.14` / `element-ui@2.15.14`（仅工具栏与弹窗）/
+`dhtmlx-gantt@^10.0.0`。
 
 ⚠️ 版本红线：dhtmlx-gantt 必须 **≥10.0**（10.0 起 GPLv2 → MIT，社区版才可商用）。
 ⚠️ 用户项目是 Vue **2.6.14**，禁止引入 Vue3-only 特性。
@@ -16,14 +17,14 @@
 
 ```
 src/
-  components/GanttChart.vue   # 核心组件：时间轴 + el-table 双栏、分割条拖拽、滚动同步、
-                              # fields/tableData/columns 数据契约、编辑弹窗联动
+  components/GanttChart.vue   # 核心组件：dhtmlx 原生 grid+timeline 布局、自绘分割条、
+                              # fields/columns 数据契约、时间轴留白、el-dialog 编辑联动
   components/TaskDialog.vue   # 新增/编辑任务弹窗（替代 dhtmlx 自带灯箱）
   index.js                    # install + 具名导出（lib 入口）
   App.vue / data.js / main.js # demo 外壳与示例数据
 scripts/
-  verify.js                   # demo 回归脚本（对齐/内容/拖拽/留白/滚动同步断言）
-  consumer-generic-verify.js  # 消费工程回归脚本（自定义列/字段映射/外部行）
+  verify.js                   # demo 回归脚本（grid 内容/分割条拖拽/无依赖线/留白/纵向同步）
+  consumer-generic-verify.js  # 消费工程回归脚本（自定义列/字段映射/自定义字段透传）
   README.md                   # 如何搭建运行环境（puppeteer-core + Chrome）
 README.md                     # 面向使用方的组件文档（API 完整）
 lib/ dist/                    # 构建产物（gitignore）
@@ -31,31 +32,38 @@ lib/ dist/                    # 构建产物（gitignore）
 
 ## 3. 架构核心决策（不要轻易推翻）
 
-1. **gantt 实例是唯一数据源**：左侧表格由 `gantt.serialize()` 派生（`rebuildTable()`）；
-   传入 `tableData` 时行序/附加字段由外部提供、日期/进度以 gantt 为权威合并，
-   变更后 emit `table-data-change` 全量回传（`_lastRowsKey` JSON 指纹去重防循环）。
-2. **三层通用数据契约**（组件不绑定任何业务字段名）：
-   - `fields`：使用方字段名 → 语义字段（id/text/startDate/endDate/duration/progress/parent）映射
-   - `tableData`：外部表格行
-   - `columns`：列配置；内置 key `text/start/end/duration/progress/ops` 保留专门渲染，
-     任意列可用作用域插槽 `#col-<key>` 覆盖
-3. **依赖线与里程碑已整体移除**（用户明确要求）：数据格式仅 `{ data: Task[] }`，
-   字段映射无 `type`，`drag_links=false`/`show_links=false` 显式关闭。
-4. **时间轴范围自管**（`ensureTimeRange()`）：默认范围贴数据边界会"顶住"拖拽，
+1. **左侧表格就是 dhtmlx 原生 grid**（用户明确要求，已废弃 el-table 混合方案）：
+   `gantt.config.layout` 为 grid + timeline 双视图共享 `scrollVer/scrollHor` 滚动条，
+   不存在第二份数据、不需要滚动同步与行高对齐。gantt 实例是唯一数据源。
+2. **数据契约两层**（组件不绑定业务字段名）：
+   - `fields`：使用方字段名 → 语义字段（id/text/startDate/endDate/duration/progress/parent）映射；
+     映射之外的字段**透传**进 gantt 任务对象（`type` 除外），grid 自定义列才能取到
+   - `columns`：`{key,label,width,align,format}` → 翻译成 dhtmlx 原生 grid 列；
+     内置 key `text/start/end/duration/progress/ops` 带内置模板；ops 列由 `actions`
+     配置动作（内置 edit/append/remove 复用内置弹窗与确认，自定义动作给
+     `handler(task)`），按钮经**事件委托**（容器 click 监听 + `gantt.locate(e)`）触发；
+     完全原生控制走 `ganttOptions.columns`
+3. **依赖线与里程碑已整体移除**：数据格式仅 `{ data: Task[] }`，字段映射无 `type`，
+   `drag_links=false`/`show_links=false` 显式关闭（默认 true，删配置行≠关闭）。
+4. **分割条是自绘的**：layout 的 `resizer` 视图是 **PRO 功能**（社区版报
+   `getPrevSibling is not a function`）。自绘 div 绝对定位在 grid 右缘，
+   拖动时 `config.grid_width = w; gantt.setSizes()`；grid 实际宽度以 DOM 实测为准
+   （会被列宽总和顶住），v10 没有 `setGridWidth/getGridWidth` 实例方法。
+5. **时间轴范围自管**（`ensureTimeRange()`）：默认范围贴数据边界会"顶住"拖拽，
    扩到 [最早任务月初, 最晚任务月末+2 个月]，只外扩不收缩；
    自管时必须关 `fit_tasks`（否则每次数据变化缩回数据边界）；
    使用方经 `ganttOptions` 显式给 `start_date`/`end_date` 时不接管。
-5. **多实例**：`Gantt.getGanttInstance()` 每组件实例独立实例，`beforeDestroy` 调 `destructor()`。
-6. **灯箱拦截**：`onBeforeLightbox` 一律 return false，编辑统一走 el-dialog（quick_info 插件不能开）。
+6. **多实例**：`Gantt.getGanttInstance()` 每组件实例独立实例，`beforeDestroy` 调 `destructor()`。
+7. **灯箱拦截**：`onBeforeLightbox` 一律 return false，编辑统一走 el-dialog（quick_info 插件不能开）；
+   删除确认走 `onBeforeTaskDelete` 拦截 + `_delConfirm` 标记模式（ElMessageBox 异步）。
 
 ## 4. API 速览（详见 README.md）
 
-- Props：`tasks`(必填) `fields` `tableData` `columns` `rowHeight=36` `barHeight=20`
-  `scaleHeight=48` `skin='material'` `zoom='day'` `tableWidth=.sync` `readonly` `ganttOptions`
-- 事件：`gantt-event`(`{type,message,data}`) `table-data-change`(全量合并行)
-  `update:tableWidth`
-- 方法(refs)：`getSnapshot()` `getInstance()`
-- 插槽：`toolbar-extra` + 任意列 `#col-<key>="{ row }"`
+- Props：`tasks`(必填) `fields` `columns` `rowHeight=36` `barHeight=20`
+  `scaleHeight=48` `skin='material'` `zoom='day'` `tableWidth=520`(.sync) `readonly` `ganttOptions`
+- 事件：`gantt-event`(`{type,message,data}`)、`update:tableWidth`
+- 方法(refs)：`getSnapshot()`、`getInstance()`
+- 插槽：`toolbar-extra`
 
 ## 5. 构建与验证流程（每次改动的标准闭环）
 
@@ -82,27 +90,36 @@ npm run build
 puppeteer 回归（环境搭建见 scripts/README.md）：
 
 ```bash
-# 起静态服务（http-server），跑完 taskkill 清理
-cd <dist目录> && npx --yes http-server -p 8129 -c-1 -s &
+# 起静态服务（python http.server 比 npx http-server 快且稳），跑完 taskkill 清理
+python -m http.server 8129 --bind 127.0.0.1 --directory "D:/pi/dhtmlx-gantt-vue2-demo/dist" &
+python -m http.server 8130 --bind 127.0.0.1 --directory "D:/tmp/lib-consumer/dist" &
 node verify.js                    # demo，端口 8129，exit 2=失败
 node consumer-generic-verify.js   # 消费工程，端口 8130
 ```
 
 **纪律：任何改动交付前必须跑通上述两条验证链（构建零报错 + 断言全 PASS + 控制台零错误）。**
 
+调试技巧：组件 mounted 里有 try/catch（初始化失败打 `[GanttChart] 初始化失败` + 堆栈），
+但生产构建堆栈是压缩过的——排查 dhtmlx 内部错误用 `npm run serve`（dev 构建，可读堆栈）。
+
 ## 6. 踩坑清单（全部实测，改代码前先读）
 
 1. `templates.*` 必须在 `gantt.init()` **之前**赋值，否则被捕获为默认值
-2. `addTaskLayer` 是逐任务回调（返回 DOM），不是传容器
-3. el-table td 必须 `box-sizing: border-box`，否则 36px 行高逐行漂移；表头高度对齐 `scale_height`
-4. 双向滚动同步必须加 50ms `_scrollLock`：dhtmlx `scrollTo` 过程中会发出"过期中间值"的
-   onGanttScroll 事件，不加锁两边乒乓
-5. ElementUI 树形表格 `expand-change` 第二参是**布尔**（普通展开行表格才是数组）
-6. Vue2 中 el-table-column 内放**多个** `<template slot-scope>` + v-if/v-else-if 链，
-   只有第一个生效（其余分支不注册）→ 表格全空白；必须**单个** slot-scope 模板 + 内部 v-if 链
-7. 改配置类需求要写**显式值**而不是删配置行（`drag_links` 默认 true，删行≠关闭）
-8. `fit_tasks=true` 会在每次数据变化后把时间轴范围缩回任务数据边界，自管范围时必须关掉
-9. puppeteer 断言必须查**单元格文本**，只查行数/几何会漏检"全空白"类回归
+2. **layout 的 `resizer` 视图是 PRO 功能**：社区版直接抛
+   `getPrevSibling is not a function`（`_legacyGridResizerClass`），用自绘分割条替代
+3. **v10 没有 `setGridWidth/getGridWidth` 实例方法**：改 `config.grid_width` + `setSizes()`；
+   grid 实际渲染宽度会被**列宽总和**顶住，取宽度用 DOM 实测
+4. **改配置要写显式值而不是删配置行**：`drag_links` 默认 true，删行≠关闭
+5. **`fit_tasks=true` 会在每次数据变化后把时间轴范围缩回数据边界**，自管范围时必须关掉
+6. **`addTaskLayer` 是逐任务回调**（返回 DOM），不是传容器
+7. puppeteer 断言必须查**单元格文本**，只查行数/几何会漏检"全空白"类回归
+8. 排查 dhtmlx 内部报错用 dev server（`npm run serve`），生产构建堆栈是压缩的；
+   Vue 组件里的错误走 console.error 而非 pageerror，监听要分开
+9. 临时目录起静态服务用 `python -m http.server`（npx http-server 冷启动慢且后台进程易被杀）；
+   杀端口用 `taskkill //PID <pid> //T //F`（netstat 的 PID 可能是子进程）
+10. **grid 点击会触发重渲染（selectTask）**：puppeteer 里点过一次后，之前捕获的行/按钮节点
+   已脱离 DOM，再 `.click()` 派发在游离节点上永远到不了容器监听器——每次点击前必须
+   重新查询节点（verify 脚本里的 `freshRow()` 模式）
 
 ## 7. 协作约定（用户明确要求）
 
@@ -116,6 +133,8 @@ node consumer-generic-verify.js   # 消费工程，端口 8130
 ## 8. Git 历史（main，均未推送）
 
 ```
+b3dde17 docs: 补充 Agent 交接文档（AGENTS.md）
+a3f5456 test: 收编 puppeteer 回归脚本入仓并补环境重建指引
 6c392fa refactor: 移除里程碑概念
 feab1f9 feat: 时间轴两侧留白，修复拖到数据边界被顶住
 2616554 fix: 显式关闭依赖线拖拽——dhtmlx 默认 drag_links=true，删除配置行不生效
@@ -130,11 +149,12 @@ feab1f9 feat: 时间轴两侧留白，修复拖到数据边界被顶住
 
 ## 9. 当前状态与待办
 
-- 工作区干净，全部已提交；远端未推送
-- 已验证能力：树形表格双向联动、拖拽改期/工期/进度、双击编辑（el-dialog）、
-  分割条拖拽、双向滚动同步、季/月/日缩放、今日高亮、周末底色、深色主题、
-  fields 映射、外部 tableData、columns 自定义列 + 作用域插槽
-- 已移除：依赖线（含工具栏开关）、里程碑
+- 已完成（本次改版）：左侧回归 dhtmlx 原生 grid；自绘分割条；fields/columns 契约保留；
+  tableData/table-data-change/#col-<key> 插槽随 el-table 一并移除
+- 已验证能力：树形展开/收起、行点击/双击联动、拖拽改期/工期/进度、双击编辑（el-dialog）、
+  自绘分割条拖宽、季/月/日缩放、今日高亮、周末底色、深色主题、按住空白平移、
+  fields 映射、自定义字段透传、columns 自定义列、时间轴留白
+- 待办：本改版尚未提交（等用户指示）；README/AGENTS/scripts 文档已同步新架构
 - scripts/ 下两个验证脚本的运行时副本在 D:/tmp/gantt-verify（含 puppeteer-core 依赖），
   D:/tmp/lib-consumer 为消费工程——**两者都在临时目录，丢失时按 scripts/README.md 重建**，
-  脚本本体以本仓库 scripts/ 为准
+  脚本本体以本仓库 scripts/ 为准（注意：仓库内副本需与临时目录运行版保持同步）

@@ -7,8 +7,8 @@
 
 | 脚本 | 目标 | 端口 | 断言内容 |
 |---|---|---|---|
-| `verify.js` | demo 构建产物 | 8129 | 表头/行高对齐、单元格文本、分割条拖拽、无依赖线残留、时间轴留白、双向滚动同步 |
-| `consumer-generic-verify.js` | 消费工程构建产物 | 8130 | 自定义表头（无"工期"有"负责人"）、8 行、owner 插槽、字段映射日期、全列内容 |
+| `verify.js` | demo 构建产物 | 8129 | grid 表头/行数/单元格文本、操作列按钮(编辑弹窗/加子任务)、自绘分割条拖拽、无依赖线残留、时间轴留白、grid↔timeline 纵向同步 |
+| `consumer-generic-verify.js` | 消费工程构建产物 | 8130 | 自定义列（无"工期"有"负责人/操作"）、8 行、自定义字段列(format)、操作列自定义动作(含透传字段) |
 
 断言失败 `process.exit(2)`；控制台报错也会判失败。
 
@@ -30,9 +30,9 @@ cp /d/pi/dhtmlx-gantt-vue2-demo/scripts/*.js .
 ## 运行
 
 ```bash
-# 1) 起静态服务（后台），服务目录是构建产物 dist/
-cd /d/pi/dhtmlx-gantt-vue2-demo/dist && npx --yes http-server -p 8129 -c-1 -s &
-cd /d/tmp/lib-consumer/dist && npx --yes http-server -p 8130 -c-1 -s &
+# 1) 起静态服务（python 比 npx http-server 快且稳；后台进程易随 shell 退出被杀，尽量同会话内跑完）
+python -m http.server 8129 --bind 127.0.0.1 --directory "D:/pi/dhtmlx-gantt-vue2-demo/dist" &
+python -m http.server 8130 --bind 127.0.0.1 --directory "D:/tmp/lib-consumer/dist" &
 
 # 2) 跑断言
 cd /d/tmp/gantt-verify
@@ -41,5 +41,5 @@ node consumer-generic-verify.js
 
 # 3) 清理
 netstat -ano | grep LISTENING | grep ":8129 "
-taskkill //PID <pid> //F   # 8130 同理
+taskkill //PID <pid> //T //F   # 8130 同理；//T 因为 PID 可能是子进程
 ```

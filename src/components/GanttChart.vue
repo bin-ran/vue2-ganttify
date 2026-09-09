@@ -1,5 +1,5 @@
 <template>
-  <div class="gantt-wrapper" :class="{ resizing: resizing }" :style="cssVars">
+  <div class="gantt-wrapper">
     <!-- 工具栏（ElementUI） -->
     <div class="gantt-toolbar">
       <div class="tb-left">
@@ -20,73 +20,18 @@
       </div>
     </div>
 
-    <div class="work-area">
-      <!-- 左：ElementUI 树形表格（替代 gantt 自带 grid） -->
-      <div class="gantt-table" :style="{ width: innerTableWidth + 'px' }">
-        <el-table
-          ref="ganttTable"
-          :data="rows"
-          row-key="id"
-          :tree-props="{ children: 'children' }"
-          border
-          height="100%"
-          size="mini"
-          highlight-current-row
-          @row-click="onRowClick"
-          @expand-change="onExpandChange"
-        >
-          <el-table-column
-            v-for="col in visibleColumns"
-            :key="col.key"
-            :prop="col.key === 'ops' ? undefined : col.key"
-            :label="col.label"
-            :width="col.width"
-            :min-width="col.minWidth"
-            :align="col.align"
-            :sortable="col.sortable"
-            :show-overflow-tooltip="col.tooltip"
-          >
-            <!-- 单个作用域插槽模板 + 内部分支：Vue2 里同名多个 <template slot-scope>
-                 只有第一个生效，不能拆成多个模板做 v-if 链 -->
-            <template slot-scope="scope">
-              <!-- 使用方可通过 #col-<key> 覆盖任意列（含内置列）的渲染 -->
-              <slot
-                v-if="$scopedSlots['col-' + col.key]"
-                :name="'col-' + col.key"
-                v-bind="scope"
-              ></slot>
-              <template v-else-if="col.key === 'text'">
-                <span :class="{ 'proj-name': scope.row.type === 'project' }">{{ scope.row.text }}</span>
-              </template>
-              <el-progress
-                v-else-if="col.key === 'progress'"
-                :percentage="Math.min(100, scope.row.progress || 0)"
-                :stroke-width="8"
-                :show-text="false"
-              />
-              <template v-else-if="col.key === 'ops'">
-                <el-button type="text" size="mini" @click.stop="openEdit(scope.row)">编辑</el-button>
-                <el-button type="text" size="mini" @click.stop="openCreate(scope.row)">加子任务</el-button>
-                <el-button type="text" size="mini" class="danger-btn" @click.stop="confirmDelete(scope.row.text, scope.row.id)">删除</el-button>
-              </template>
-              <template v-else>
-                {{ col.format ? col.format(scope.row) : scope.row[col.key] }}
-              </template>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-
-      <!-- 拖拽分割条：调整左侧表格宽度（双击恢复默认） -->
+    <!-- gantt 本体：原生 grid + timeline 在容器内；resizer 视图是 PRO 功能，
+         社区版用自绘分割条（拖动调 setGridWidth，双击复位） -->
+    <div class="gantt-host" :class="{ resizing: resizing }">
+      <div ref="ganttEl" class="gantt-inner"></div>
       <div
-        class="gantt-resizer"
+        ref="resizerEl"
+        class="grid-resizer"
+        :style="{ left: (innerTableWidth - 3) + 'px' }"
         title="拖动调整表格宽度，双击恢复默认"
         @mousedown="onResizerMousedown"
         @dblclick="resetResizer"
       ></div>
-
-      <!-- 右：dhtmlx 只渲染时间轴（自定义 layout 隐藏自带 grid） -->
-      <div ref="ganttEl" class="gantt-timeline"></div>
     </div>
 
     <!-- 编辑/新增弹窗（替代 dhtmlx 灯箱） -->
@@ -106,7 +51,7 @@ import { Gantt } from 'dhtmlx-gantt'
 import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'
 import TaskDialog from './TaskDialog.vue'
 
-// 内置列的默认文案/宽度（columns 不传时使用全默认列）
+// 内置 grid 列的默认文案（columns 不传时使用全默认列）
 const DEFAULT_LABELS = {
   text: '任务名称',
   start: '开始',
@@ -115,14 +60,13 @@ const DEFAULT_LABELS = {
   progress: '进度',
   ops: '操作'
 }
-const DEFAULT_MIN_WIDTHS = {
-  text: 170,
-  start: 90,
-  end: 90,
-  duration: 55,
-  progress: 100,
-  ops: 145
-}
+
+// 操作列默认动作（columns 的 ops 列可用 actions 覆盖）
+const DEFAULT_OPS_ACTIONS = [
+  { name: 'edit', text: '编辑' },
+  { name: 'append', text: '加子任务' },
+  { name: 'remove', text: '删除' }
+]
 
 // 甘特引擎所需的语义字段 → 默认数据字段名（可用 fields prop 覆盖）
 const DEFAULT_FIELDS = {
@@ -151,46 +95,35 @@ export default {
 
   props: {
     /**
-     * 结构：{ data: Task[] }（无依赖线概念）
-     * gantt 实例是唯一数据源：表格数据由它派生；
-     * 取全量数据用 getSnapshot()。
+     * 甘特数据：{ data: Task[] }（无依赖线概念）
+     * 字段名默认为 id/text/start_date/end_date/duration/progress/parent，
+     * 非标准字段名通过 fields prop 映射
      */
     tasks: { type: Object, required: true },
-    /** 行高（px），与左侧表格行高自动对齐 */
-    rowHeight: { type: Number, default: 36 },
-    /** 任务条高度（px），自动限制在行高内 */
-    barHeight: { type: Number, default: 20 },
-    /** 刻度区高度（px），表头随之对齐 */
-    scaleHeight: { type: Number, default: 48 },
-    /** 主题：material / terrace / dark / meadow / broadway / skyblue / contrast（初始值） */
-    skin: { type: String, default: 'material' },
-    /** 初始时间轴缩放：quarter / month / day */
-    zoom: { type: String, default: 'day' },
-    /** 左侧表格初始宽度（支持 .sync） */
-    tableWidth: { type: Number, default: 640 },
-    /** 只读模式：禁用全部拖拽/编辑/新增删除 */
-    readonly: { type: Boolean, default: false },
-    /**
-     * 甘特数据字段映射：把使用方的数据字段名映射到组件所需的语义字段。
-     * 可映射键：id / text / startDate / endDate / duration / progress / parent / type
-     * 缺省使用默认名（id/text/start_date/end_date/duration/progress/parent/type）
-     */
+
+    /** 字段映射：语义字段 → 使用方数据字段名，如 { id: 'taskId', text: 'name', ... } */
     fields: { type: Object, default: null },
-    /**
-     * 外部表格数据：[{ [fields.id]: 任务id, ...任意自定义字段 }]
-     * 行序与外部一致；日期/工期/进度等以 gantt 为权威合并；
-     * gantt 变更后 emit 'table-data-change' 回传合并行（内容无变化不重复回传）
-     */
-    tableData: { type: Array, default: null },
-    /**
-     * 左侧表格列配置，缺省为内置 6 列。
-     * key 为内置类型时保留专门渲染：text(树列) / start / end / duration /
-     * progress(进度条) / ops(编辑/加子任务/删除，readonly 时自动隐藏)；
-     * key 为其他值时渲染任务数据里的同名字段（自定义字段会透传），
-     * 任意列均可用作用域插槽 #col-<key>="{ row }" 覆盖渲染。
-     * 列项：{ key, label, width, minWidth, align, sortable, tooltip, format(row)=>String }
-     */
+
+    /** grid 列配置：{ key, label, width, align, format }；
+     *  key 为内置类型 text/start/end/duration/progress 时用内置模板，
+     *  key 为 ops 时渲染操作按钮（actions: [{name:'edit'|'append'|'remove',text}
+     *  或 {text, handler:(task)=>{}}]），其余 key 直接渲染任务的同名字段；
+     *  不传使用全默认列 */
     columns: { type: Array, default: null },
+
+    /** 行高（同时作用于 grid 与时间轴任务条） */
+    rowHeight: { type: Number, default: 36 },
+    /** 任务条高度 */
+    barHeight: { type: Number, default: 20 },
+    /** 刻度区高度（两级表头） */
+    scaleHeight: { type: Number, default: 48 },
+    /** 皮肤：material / dark 等 */
+    skin: { type: String, default: 'material' },
+    /** 初始缩放：quarter / month / day */
+    zoom: { type: String, default: 'day' },
+    /** 初始 grid 宽度（原生 resizer 可拖拽，拖完 emit update:tableWidth） */
+    tableWidth: { type: Number, default: 520 },
+    readonly: { type: Boolean, default: false },
     /** 逃生舱：浅合并覆盖 gantt.config 任意配置项（在组件内置配置之后应用） */
     ganttOptions: { type: Object, default: null }
   },
@@ -207,10 +140,7 @@ export default {
       skin: this.skin,
       innerTableWidth: this.tableWidth,
       resizing: false,
-      // 左侧表格数据（由 gantt 数据 + 外部 tableData 合并派生的树形结构）
-      rows: [],
-      expandedIds: [],
-      selectedId: null,
+      // 编辑弹窗状态
       dialog: { visible: false, mode: 'create', task: null, parentName: '' }
     }
   },
@@ -226,50 +156,20 @@ export default {
       const src = this.tasks || {}
       const data = (src.data || []).map((t) => {
         const row = { id: t[f.id] }
+        // 语义字段映射
         Object.keys(GANTT_KEY).forEach((k) => {
           const v = t[f[k]]
           if (v !== undefined) row[GANTT_KEY[k]] = v
         })
+        // 其余自定义字段透传（供 grid 自定义列/模板使用）；
+        // type 不透传——组件已移除里程碑概念，防止外部数据重新引入
+        Object.keys(t).forEach((k) => {
+          if (k.charCodeAt(0) === 36 || k === 'type' || k in row || t[k] === undefined) return
+          row[k] = t[k]
+        })
         return row
       })
       return { data }
-    },
-    /** 原始源数据按 id 索引（透传自定义字段用） */
-    sourceById() {
-      const f = this.fieldMap
-      const map = {}
-      ;((this.tasks || {}).data || []).forEach((t) => {
-        map[t[f.id]] = t
-      })
-      return map
-    },
-    /** 行高/刻度高度以 CSS 变量下发，保证两侧严格对齐 */
-    cssVars() {
-      return {
-        '--g-row-h': this.rowHeight + 'px',
-        '--g-scale-h': this.scaleHeight + 'px'
-      }
-    },
-    /** 归一化后的表格列配置 */
-    visibleColumns() {
-      const list = Array.isArray(this.columns) && this.columns.length ? this.columns : [
-        { key: 'text' }, { key: 'start' }, { key: 'end' },
-        { key: 'duration' }, { key: 'progress' }, { key: 'ops' }
-      ]
-      return list
-        .map((c) => (typeof c === 'string' ? { key: c } : c))
-        .filter((c) => c && c.key)
-        .map((c) => ({
-          key: c.key,
-          label: c.label || DEFAULT_LABELS[c.key] || c.key,
-          width: c.width,
-          minWidth: c.width ? undefined : (c.minWidth || DEFAULT_MIN_WIDTHS[c.key] || 80),
-          align: c.align || (c.key === 'text' ? 'left' : 'center'),
-          sortable: !!c.sortable,
-          tooltip: c.tooltip !== undefined ? !!c.tooltip : c.key === 'text',
-          format: typeof c.format === 'function' ? c.format : null
-        }))
-        .filter((c) => !(c.key === 'ops' && this.readonly))
     }
   },
 
@@ -277,49 +177,42 @@ export default {
     tableWidth(val) {
       this.innerTableWidth = val
     },
-    // 外部表格数据变化：仅重算合并行（gantt 仍是日期/进度的权威，不回灌引擎）
-    tableData() {
-      this.rebuildTable()
-    },
     // 父组件整体替换 tasks 对象（引用变化）时重新加载
     tasks(val) {
       if (!this.gantt) return
       this.gantt.clearAll()
       this.gantt.parse(this.normalizedTasks)
       this.ensureTimeRange()
-      this.rebuildTable()
     }
   },
 
   created() {
     // 非响应式内部标记
     this._delConfirm = false
-    this._tableInited = false
-    this.nodeMap = {}
-    this._raf = null
-    this._scrollLock = null
     this._defaultTableWidth = this.tableWidth
   },
 
   mounted() {
     // 每个组件实例用独立 gantt 实例（社区版支持多实例）
-    this.gantt = Gantt.getGanttInstance()
-    this.initGantt()
-    this.gantt.parse(this.normalizedTasks)
-    this.ensureTimeRange()
-    this.rebuildTable()
-    this.bindEvents()
+    try {
+      this.gantt = Gantt.getGanttInstance()
+      this.initGantt()
+      this.gantt.parse(this.normalizedTasks)
+      this.ensureTimeRange()
+      this.bindEvents()
+    } catch (e) {
+      // 初始化失败不拖垮整个应用；错误带上堆栈便于排查
+      // eslint-disable-next-line no-console
+      console.error('[GanttChart] 初始化失败：', e && e.stack || e)
+    }
   },
 
   beforeDestroy() {
-    // 移除拖拽/滚动监听 + 销毁 gantt 实例（防止二次进入实例残留）
     this.teardownResizer()
-    if (this._raf) cancelAnimationFrame(this._raf)
-    clearTimeout(this._scrollLockTimer)
-    if (this._tableScrollEl) {
-      this._tableScrollEl.removeEventListener('scroll', this._onTableScroll)
-      this._tableScrollEl = null
+    if (this._opsClickHandler && this.$refs.ganttEl) {
+      this.$refs.ganttEl.removeEventListener('click', this._opsClickHandler)
     }
+    // 销毁 gantt 实例（防止二次进入实例残留）
     if (this.gantt) {
       this.gantt.destructor()
       this.gantt = null
@@ -343,26 +236,20 @@ export default {
 
       // ---- 基础配置 ----
       g.config.date_format = '%Y-%m-%d' // 与数据中的日期字符串格式一致
-      g.config.fit_tasks = true         // 数据超出当前时间轴范围时自动扩展
       g.config.row_height = this.rowHeight
       g.config.bar_height = Math.max(10, Math.min(this.barHeight, this.rowHeight - 12))
       g.config.auto_types = true        // 有子任务的节点自动按“项目”汇总
       g.config.open_tree_initially = true
       g.config.readonly = !!this.readonly
+      g.config.grid_width = this.innerTableWidth
 
-      // ---- 拖拽能力（社区版全部免费）----
-      g.config.drag_move = true     // 拖动任务条 → 修改起止日期
-      g.config.drag_resize = true   // 拖动任务条两端 → 修改工期
-      g.config.drag_progress = true // 拖动任务条里的深色进度段 → 修改进度
-      g.config.drag_links = false   // 显式关闭依赖线拖拽（dhtmlx 默认 true，会在任务条两端渲染连接点）
-      g.config.show_links = false   // 不渲染任何依赖线
-
-      // ---- 左侧 grid 由 ElementUI el-table 替代，这里只渲染时间轴 ----
+      // ---- 原生布局：grid + timeline 共享滚动条（resizer 视图是 PRO 功能，社区版不可用）----
       g.config.layout = {
         css: 'gantt_container',
         rows: [
           {
             cols: [
+              { view: 'grid', scrollX: 'scrollHor', scrollY: 'scrollVer' },
               { view: 'timeline', scrollX: 'scrollHor', scrollY: 'scrollVer' },
               { view: 'scrollbar', id: 'scrollVer' }
             ]
@@ -370,6 +257,13 @@ export default {
           { view: 'scrollbar', id: 'scrollHor', height: 20 }
         ]
       }
+
+      // ---- 拖拽能力（社区版全部免费）----
+      g.config.drag_move = true     // 拖动任务条 → 修改起止日期
+      g.config.drag_resize = true   // 拖动任务条两端 → 修改工期
+      g.config.drag_progress = true // 拖动任务条里的深色进度段 → 修改进度
+      g.config.drag_links = false   // 显式关闭依赖线拖拽（dhtmlx 默认 true，会在任务条两端渲染连接点）
+      g.config.show_links = false   // 不渲染任何依赖线
 
       // ---- 周末底色 + “今天”列高亮 ----
       // 注意：必须在 init() 之前赋值，v10 初始化时会捕获当时的模板函数
@@ -381,6 +275,7 @@ export default {
       g.templates.timeline_cell_class = (item, date) => cellClass(date) // 时间轴列
 
       this.applyZoom(this.zoom)
+      this.applyColumns()
 
       // ---- 逃生舱：使用方浅合并覆盖 gantt.config ----
       if (this.ganttOptions) {
@@ -397,6 +292,11 @@ export default {
       }
 
       g.init(this.$refs.ganttEl)
+      // 列宽总和可能超过 grid_width，以实际渲染宽度为准（resizer 定位依赖它）
+      this.$nextTick(() => {
+        const el = this.$refs.ganttEl && this.$refs.ganttEl.querySelector('.gantt_grid')
+        if (el) this.innerTableWidth = Math.round(el.getBoundingClientRect().width)
+      })
     },
 
     /** 时间轴缩放：切换两级刻度 */
@@ -423,267 +323,60 @@ export default {
     },
 
     /**
-     * 由 gantt 数据 + 外部 tableData 派生左侧表格行：
-     * - 未传 tableData：行 = gantt 派生字段 + tasks 自定义字段透传
-     * - 传入 tableData：行 = 外部行（保留字段与行序）+ gantt 权威字段合并（按 fields.id 匹配），
-     *   外部行没有的新任务自动追加；gantt 变更后回传 'table-data-change'
+     * columns prop → dhtmlx 原生 grid 列：
+     * - key: text/start/end/duration/progress 用内置模板（start/end 显示“含当天”的结束语义），
+     *   其余 key 直接渲染任务同名字段
+     * - format(task)：自定义单元格文本（dhtmlx template）
+     * - tree: 仅 text 列默认开启（树形展开箭头）
      */
-    rebuildTable() {
-      if (!this.gantt) return
-      const g = this.gantt
-      const parseD = g.date.str_to_date('%Y-%m-%d')
-      const fmtD = g.date.date_to_str('%Y-%m-%d')
-      const snap = g.serialize()
-
-      // 1) gantt 权威字段（归一化名：id/text/type/start/end/duration/progress）
-      const fieldsById = {}
-      snap.data.forEach((t) => {
-        fieldsById[t.id] = {
-          id: t.id,
-          text: t.text,
-          type: t.type || 'task',
-          start: t.start_date,
-          // serialize 的 end_date 是“排他”结束；表格展示“含当天”的结束日期
-          end: fmtD(new Date(parseD(t.end_date).getTime() - 86400000)),
-          duration: t.duration,
-          progress: Math.round((t.progress || 0) * 100),
-          parentId: t.parent || 0
-        }
-      })
-
-      // 2) 行来源：外部 tableData（保留外部字段与行序）或 gantt 派生 + tasks 自定义字段透传
-      const external = Array.isArray(this.tableData) ? this.tableData : null
-      let flatRows = []
-      if (external) {
-        const known = {}
-        external.forEach((row) => {
-          if (!row) return
-          const f = fieldsById[row[this.fieldMap.id]]
-          if (!f) return
-          known[f.id] = true
-          flatRows.push(Object.assign({}, row, f))
-        })
-        // 外部行里没有的新任务（如弹窗新增）自动追加
-        snap.data.forEach((t) => {
-          if (!known[t.id]) flatRows.push(Object.assign({}, fieldsById[t.id]))
-        })
-      } else {
-        flatRows = snap.data.map((t) => {
-          const node = Object.assign({}, fieldsById[t.id])
-          const src = this.sourceById[t.id]
-          if (src) {
-            Object.keys(src).forEach((k) => {
-              if (k.charCodeAt(0) === 36 || k in node) return
-              node[k] = src[k]
-            })
-          }
-          return node
-        })
-      }
-
-      // 3) 树形化（父子关系以 gantt 为准）
-      const byId = {}
-      flatRows.forEach((r) => { byId[r.id] = r })
-      const tree = []
-      flatRows.forEach((r) => {
-        const f = fieldsById[r.id]
-        const p = f && f.parentId && byId[f.parentId]
-        if (p) {
-          if (!p.children) this.$set(p, 'children', [])
-          p.children.push(r)
-        } else {
-          tree.push(r)
-        }
-      })
-
-      // 4) 首次构建：默认展开全部汇总节点
-      if (!this._tableInited) {
-        this.expandedIds = flatRows.filter((r) => r.children).map((r) => r.id)
-        this._tableInited = true
-      }
-
-      this.nodeMap = byId
-      this.rows = tree
-      this.emitTableDataChange(flatRows)
-      this.$nextTick(() => this.restoreTableState())
-    },
-
-    /** 外部传入 tableData 时，gantt 变更后回传合并行（内容未变化不重复回传，避免循环） */
-    emitTableDataChange(flatRows) {
-      if (!Array.isArray(this.tableData)) return
-      const key = JSON.stringify(flatRows, (k, v) => (k === 'children' ? undefined : v))
-      if (key === this._lastRowsKey) return
-      this._lastRowsKey = key
-      this.$emit('table-data-change', JSON.parse(key))
-    },
-
-    /** 重建表格后恢复展开/选中状态 */
-    restoreTableState() {
-      const table = this.$refs.ganttTable
-      if (!table) return
-      const walk = (nodes) => {
-        nodes.forEach((n) => {
-          if (n.children && n.children.length && this.expandedIds.indexOf(n.id) !== -1) {
-            table.toggleRowExpansion(n, true)
-          }
-          if (n.children) walk(n.children)
-        })
-      }
-      walk(this.rows)
-      if (this.selectedId && this.nodeMap[this.selectedId]) {
-        table.setCurrentRow(this.nodeMap[this.selectedId])
-      }
-    },
-
-    bindEvents() {
+    applyColumns() {
       const g = this.gantt
       const fmt = g.date.date_to_str('%Y-%m-%d')
-
-      // ---- gantt 变更 → 同步表格 ----
-      g.attachEvent('onAfterTaskDrag', (id, mode) => {
-        const task = g.getTask(id)
-        const name = { move: '拖动改期', resize: '调整工期', progress: '更新进度' }[mode] || mode
-        this.emitEvent(
-          'task-drag',
-          `${name}：「${task.text}」→ ${fmt(task.start_date)} ~ ${fmt(task.end_date)}`,
-          task
-        )
-        this.rebuildTable()
-      })
-
-      g.attachEvent('onAfterTaskAdd', (id, task) => {
-        this.emitEvent('task-add', `新增任务：「${task.text}」`, task)
-        this.ensureTimeRange()
-        this.rebuildTable()
-      })
-
-      g.attachEvent('onAfterTaskUpdate', (id, task) => {
-        this.emitEvent('task-update', `任务已更新：「${task.text}」`, task)
-        this.ensureTimeRange()
-        this.rebuildTable()
-      })
-
-      g.attachEvent('onAfterTaskDelete', (id, task) => {
-        if (this.selectedId === id) this.selectedId = null
-        this.emitEvent('task-delete', `删除任务：「${task.text}」`, task)
-        this.rebuildTable()
-      })
-
-      // ---- 交互联动 ----
-      // 点击任务条 → 左侧表格选中对应行
-      g.attachEvent('onTaskClick', (id) => {
-        const node = this.nodeMap[id]
-        if (node) {
-          this.selectedId = id
-          this.$refs.ganttTable.setCurrentRow(node)
+      let list = Array.isArray(this.columns) && this.columns.length ? this.columns : [
+        { key: 'text', label: DEFAULT_LABELS.text, width: 200 },
+        { key: 'start', label: DEFAULT_LABELS.start, width: 90, align: 'center' },
+        { key: 'end', label: DEFAULT_LABELS.end, width: 90, align: 'center' },
+        { key: 'duration', label: DEFAULT_LABELS.duration, width: 60, align: 'center' },
+        { key: 'progress', label: DEFAULT_LABELS.progress, width: 80, align: 'center' },
+        { key: 'ops', label: DEFAULT_LABELS.ops, width: 145, align: 'center' }
+      ]
+      list = list.map((c) => (typeof c === 'string' ? { key: c } : (c || {})))
+      // readonly 不渲染操作列
+      if (this.readonly) list = list.filter((c) => c.key !== 'ops')
+      // 解析操作列动作（内置 edit/append/remove 或自定义 handler）
+      const opsItem = list.find((c) => c.key === 'ops')
+      this._opsActions = (opsItem && Array.isArray(opsItem.actions) && opsItem.actions.length
+        ? opsItem.actions
+        : DEFAULT_OPS_ACTIONS
+      ).filter((a) => a && ['edit', 'append', 'remove'].indexOf(a.name) !== -1 || (a && typeof a.handler === 'function'))
+      g.config.columns = list.map((c) => {
+        const col = c
+        const key = col.key
+        const name = key === 'start' ? 'start_date' : key === 'end' ? 'end_date' : key
+        const def = {
+          name,
+          label: col.label || DEFAULT_LABELS[key] || key,
+          width: col.width || 90,
+          align: col.align || (key === 'text' ? 'left' : 'center'),
+          tree: key === 'text' ? true : undefined,
+          template: typeof col.format === 'function' ? col.format : null
         }
-        return true
-      })
-
-      // 双击任务条 → 打开 el-dialog 编辑（返回 false 阻止默认灯箱）
-      g.attachEvent('onTaskDblClick', (id) => {
-        if (!this.readonly) this.openEdit(this.nodeMap[id])
-        return false
-      })
-
-      // 双保险：任何灯箱打开请求一律拦截（编辑统一走 el-dialog）
-      g.attachEvent('onBeforeLightbox', () => false)
-
-      // 删除确认（表格删除按钮与键盘 Delete 都走这里；MessageBox 是异步的，
-      // 因此先同步返回 false 拦截，确认后再带标记执行真正的删除）
-      g.attachEvent('onBeforeTaskDelete', (id) => {
-        if (this._delConfirm) return true
-        const task = g.getTask(id)
-        this.confirmDelete(task.text, id)
-        return false
-      })
-
-      // ---- 纵向滚动同步：gantt → el-table ----
-      // 注意：dhtmlx 的 scrollTo 过程中会发出“过期中间值”的 onGanttScroll 事件，
-      // 直接双向同步会乒乓打架（实测两边互相拉扯最后停在 0），必须加滚动锁：
-      // 一方发起同步后 50ms 内抑制另一方的回传。
-      g.attachEvent('onGanttScroll', (left, top) => {
-        if (this._scrollLock === 'table') return true
-        this._scrollLock = 'gantt'
-        const w = this.getTableScrollEl()
-        if (w && Math.abs(w.scrollTop - top) > 1) w.scrollTop = top
-        this.refreshScrollLock()
-        return true
-      })
-
-      // ---- 纵向滚动同步：el-table → gantt ----
-      const wrapper = this.getTableScrollEl()
-      if (wrapper) {
-        this._onTableScroll = (e) => {
-          if (this._scrollLock === 'gantt') return
-          this._scrollLock = 'table'
-          const st = g.getScrollState()
-          if (Math.abs((st.y || 0) - e.target.scrollTop) > 1) {
-            g.scrollTo(st.x, e.target.scrollTop)
-          }
-          this.refreshScrollLock()
+        if (!def.template && key === 'ops') {
+          def.template = (t) => this._opsActions
+            .map((a, i) => `<button type="button" class="gantt-ops-btn ops-${a.name}" data-ops-action="${i}">${a.text}</button>`)
+            .join('')
+        } else if (!def.template && key !== 'text') {
+          if (key === 'start') def.template = (t) => fmt(t.start_date)
+          else if (key === 'end') def.template = (t) => fmt(new Date(t.end_date.getTime() - 86400000))
+          else if (key === 'duration') def.template = (t) => (t.duration == null ? '' : String(t.duration))
+          else if (key === 'progress') def.template = (t) => Math.round((t.progress || 0) * 100) + '%'
+          else def.template = (t) => (t[key] == null ? '' : String(t[key]))
         }
-        wrapper.addEventListener('scroll', this._onTableScroll)
-        this._tableScrollEl = wrapper
-      }
-    },
-
-    /** 滚动锁：50ms 内抑制反向回传，避免两侧行高/钳位差异引发乒乓 */
-    refreshScrollLock() {
-      clearTimeout(this._scrollLockTimer)
-      this._scrollLockTimer = setTimeout(() => {
-        this._scrollLock = null
-      }, 50)
-    },
-
-    getTableScrollEl() {
-      const table = this.$refs.ganttTable
-      return table && table.$el ? table.$el.querySelector('.el-table__body-wrapper') : null
-    },
-
-    // ---------- 分割条拖拽：调整表格/时间轴宽度比例 ----------
-    onResizerMousedown(e) {
-      e.preventDefault()
-      this._dragStartX = e.clientX
-      this._dragStartW = this.innerTableWidth
-      this.resizing = true
-      // 拖拽期间禁用两块区域的鼠标事件：避免光标划过 gantt 内部 iframe 时丢失 mousemove
-      document.addEventListener('mousemove', this.onResizerMove)
-      document.addEventListener('mouseup', this.onResizerMouseup)
-    },
-
-    onResizerMove(e) {
-      const rect = this.$el.getBoundingClientRect()
-      // 左侧最小 420，右侧至少留 420 给时间轴
-      const max = rect.width - 420
-      const next = this._dragStartW + (e.clientX - this._dragStartX)
-      this.innerTableWidth = Math.min(max, Math.max(420, Math.round(next)))
-      // rAF 节流：拖动过程中让 gantt 重排（时间轴宽度变化）
-      if (!this._raf) {
-        this._raf = requestAnimationFrame(() => {
-          this._raf = null
-          if (this.gantt) this.gantt.setSizes()
+        Object.keys(def).forEach((k) => {
+          if (def[k] === undefined) delete def[k]
         })
-      }
-    },
-
-    onResizerMouseup() {
-      this.resizing = false
-      this.teardownResizer()
-      if (this.gantt) this.gantt.setSizes()
-      this.$emit('update:tableWidth', this.innerTableWidth)
-      this.emitEvent('resizer-change', `表格宽度调整为 ${this.innerTableWidth}px`, { tableWidth: this.innerTableWidth })
-    },
-
-    resetResizer() {
-      this.innerTableWidth = this._defaultTableWidth
-      if (this.gantt) this.gantt.setSizes()
-      this.$emit('update:tableWidth', this.innerTableWidth)
-    },
-
-    teardownResizer() {
-      document.removeEventListener('mousemove', this.onResizerMove)
-      document.removeEventListener('mouseup', this.onResizerMouseup)
+        return def
+      })
     },
 
     /**
@@ -716,6 +409,124 @@ export default {
       g.scrollTo(keep.x, keep.y)
     },
 
+    // ---------- 事件绑定 ----------
+    bindEvents() {
+      const g = this.gantt
+      const fmt = g.date.date_to_str('%Y-%m-%d')
+
+      // ---- gantt 变更 → 事件回传 ----
+      g.attachEvent('onAfterTaskDrag', (id, mode) => {
+        const task = g.getTask(id)
+        const name = { move: '拖动改期', resize: '调整工期', progress: '更新进度' }[mode] || mode
+        this.emitEvent(
+          'task-drag',
+          `${name}：「${task.text}」→ ${fmt(task.start_date)} ~ ${fmt(task.end_date)}`,
+          task
+        )
+      })
+
+      g.attachEvent('onAfterTaskAdd', (id, task) => {
+        this.emitEvent('task-add', `新增任务：「${task.text}」`, task)
+        this.ensureTimeRange()
+      })
+
+      g.attachEvent('onAfterTaskUpdate', (id, task) => {
+        this.emitEvent('task-update', `任务已更新：「${task.text}」`, task)
+        this.ensureTimeRange()
+      })
+
+      g.attachEvent('onAfterTaskDelete', (id, task) => {
+        this.emitEvent('task-delete', `删除任务：「${task.text}」`, task)
+      })
+
+      // ---- 交互 ----
+      // 点击任务条/行 → 事件回传（dhtmlx 原生会选中该行）
+      g.attachEvent('onTaskClick', (id, task) => {
+        this.emitEvent('task-click', `选中任务：「${task.text}」`, task)
+        return true
+      })
+
+      // 双击任务条/行 → 打开 el-dialog 编辑（返回 false 阻止默认灯箱）
+      g.attachEvent('onTaskDblClick', (id) => {
+        if (!this.readonly) this.openEdit(g.getTask(id))
+        return false
+      })
+
+      // 双保险：任何灯箱打开请求一律拦截（编辑统一走 el-dialog）
+      g.attachEvent('onBeforeLightbox', () => false)
+
+      // 删除确认（键盘 Delete 等入口都走这里；MessageBox 是异步的，
+      // 因此先同步返回 false 拦截，确认后再带标记执行真正的删除）
+      g.attachEvent('onBeforeTaskDelete', (id) => {
+        if (this._delConfirm) return true
+        const task = g.getTask(id)
+        this.confirmDelete(task.text, id)
+        return false
+      })
+
+      // ---- 操作列按钮（事件委托挂在容器上，grid 重建后依然有效）----
+      this._opsClickHandler = (e) => {
+        const btn = e.target && e.target.closest ? e.target.closest('[data-ops-action]') : null
+        if (!btn || !this.gantt || this.readonly) return
+        const id = this.gantt.locate(e)
+        if (id == null) return
+        const task = this.gantt.getTask(id)
+        const action = (this._opsActions || [])[Number(btn.getAttribute('data-ops-action'))]
+        if (!action) return
+        if (action.name === 'edit') this.openEdit(task)
+        else if (action.name === 'append') this.openCreate(task)
+        else if (action.name === 'remove') this.confirmDelete(task.text, id)
+        else if (typeof action.handler === 'function') action.handler(task)
+      }
+      this.$refs.ganttEl.addEventListener('click', this._opsClickHandler)
+    },
+
+    // ---------- 分割条拖拽：调整原生 grid 宽度 ----------
+    onResizerMousedown(e) {
+      if (this.readonly) return
+      e.preventDefault()
+      this._dragStartX = e.clientX
+      this._dragStartW = this.innerTableWidth
+      this.resizing = true
+      document.addEventListener('mousemove', this.onResizerMove)
+      document.addEventListener('mouseup', this.onResizerMouseup)
+    },
+
+    onResizerMove(e) {
+      const host = this.$refs.resizerEl && this.$refs.resizerEl.parentElement
+      const max = host ? host.clientWidth - 240 : 1200
+      const next = this._dragStartW + (e.clientX - this._dragStartX)
+      const target = Math.min(max, Math.max(200, Math.round(next)))
+      if (this.gantt) {
+        // v10 无 setGridWidth：改 config 后 setSizes 重排；实际宽度以 DOM 为准
+        this.gantt.config.grid_width = target
+        this.gantt.setSizes()
+        const el = this.$refs.ganttEl.querySelector('.gantt_grid')
+        if (el) this.innerTableWidth = Math.round(el.getBoundingClientRect().width)
+      }
+    },
+
+    onResizerMouseup() {
+      this.resizing = false
+      this.teardownResizer()
+      this.$emit('update:tableWidth', this.innerTableWidth)
+      this.emitEvent('table-resize', `表格宽度调整为 ${this.innerTableWidth}px`, { tableWidth: this.innerTableWidth })
+    },
+
+    resetResizer() {
+      this.innerTableWidth = this._defaultTableWidth
+      if (this.gantt) {
+        this.gantt.config.grid_width = this.innerTableWidth
+        this.gantt.setSizes()
+      }
+      this.$emit('update:tableWidth', this.innerTableWidth)
+    },
+
+    teardownResizer() {
+      document.removeEventListener('mousemove', this.onResizerMove)
+      document.removeEventListener('mouseup', this.onResizerMouseup)
+    },
+
     // ---------- 工具栏 ----------
     toggleSkin() {
       this.skin = this.skin === 'dark' ? 'material' : 'dark'
@@ -732,46 +543,34 @@ export default {
       )
     },
 
-    // ---------- 表格交互 ----------
-    onRowClick(row) {
-      this.selectedId = row.id
-      this.gantt.selectTask(row.id)
-      this.emitEvent('row-click', `选中任务：「${row.text}」`, row)
-    },
-
-    onExpandChange(row, expanded) {
-      // 注意：树形表格 expand-change 的第二参是“该行是否展开”的布尔值；
-      // 普通展开行表格才是展开行数组。两种形态都兼容。
-      const isExpand = Array.isArray(expanded)
-        ? expanded.some((r) => r.id === row.id)
-        : !!expanded
-      if (isExpand) {
-        if (this.expandedIds.indexOf(row.id) === -1) this.expandedIds.push(row.id)
-      } else {
-        this.expandedIds = this.expandedIds.filter((id) => id !== row.id)
-      }
-      // 表格展开/收起 → 同步 gantt 的折叠状态（影响时间轴上子任务条的显示）
-      if (isExpand) {
-        this.gantt.open(row.id)
-      } else {
-        this.gantt.close(row.id)
-      }
-    },
-
     // ---------- 编辑弹窗 ----------
-    openCreate(parentRow) {
+    openCreate(parentTask) {
       if (this.readonly) return
       this.dialog = {
         visible: true,
-        mode: parentRow ? 'appendChild' : 'create',
-        task: parentRow || null,
-        parentName: parentRow ? parentRow.text : ''
+        mode: parentTask ? 'appendChild' : 'create',
+        task: parentTask || null,
+        parentName: parentTask ? parentTask.text : ''
       }
     },
 
-    openEdit(row) {
-      if (this.readonly || !row) return
-      this.dialog = { visible: true, mode: 'edit', task: row, parentName: '' }
+    openEdit(task) {
+      if (this.readonly || !task) return
+      const f = this.gantt.date.date_to_str('%Y-%m-%d')
+      this.dialog = {
+        visible: true,
+        mode: 'edit',
+        parentName: '',
+        // 交给表单的视图模型：日期串（结束含当天）+ 整数进度
+        task: {
+          id: task.id,
+          type: task.type || 'task',
+          text: task.text,
+          start: f(task.start_date),
+          end: f(new Date(task.end_date.getTime() - 86400000)),
+          progress: Math.round((task.progress || 0) * 100)
+        }
+      }
     },
 
     onDialogSave(form) {
@@ -779,13 +578,12 @@ export default {
       const d = this.dialog
 
       if (d.mode === 'edit') {
-        const patch = {
+        g.updateTask(d.task.id, {
           text: form.text,
           start_date: form.start,
           duration: this.diffDays(form.start, form.end) + 1, // 结束日期含当天
           progress: form.progress / 100
-        }
-        g.updateTask(d.task.id, patch)
+        })
       } else {
         const item = {
           text: form.text,
@@ -793,7 +591,7 @@ export default {
           duration: this.diffDays(form.start, form.end) + 1,
           progress: form.progress / 100
         }
-        if (d.mode === 'appendChild') item.parent = d.task.id
+        if (d.mode === 'appendChild' && d.task) item.parent = d.task.id
         g.addTask(item)
       }
 
@@ -835,7 +633,7 @@ export default {
 </script>
 
 <style>
-/* 甘特图与表格内部 DOM 大量动态生成，样式不要加 scoped */
+/* 甘特图内部 DOM 大量动态生成，样式不要加 scoped */
 .gantt-wrapper {
   display: flex;
   flex-direction: column;
@@ -854,65 +652,46 @@ export default {
 .tb-right { display: flex; align-items: center; gap: 10px; }
 .tb-label { color: #888; font-size: 13px; }
 
-/* 中部工作区：左表格 + 右时间轴 */
-.work-area {
+/* gantt 本体（grid + timeline）撑满剩余空间；resizer 绝对定位在 grid 右缘 */
+.gantt-host {
   flex: 1;
   min-height: 0;
-  display: flex;
+  position: relative;
 }
-
-.gantt-table {
-  flex: none;
-  min-height: 0;
+.gantt-inner {
+  width: 100%;
+  height: 100%;
 }
-.gantt-timeline {
-  flex: 1;
-  min-width: 0;
-}
-
-/* 拖拽分割条：调整表格/时间轴宽度比例 */
-.gantt-resizer {
-  flex: none;
-  width: 5px;
+.grid-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 20px; /* 让出底部横向滚动条 */
+  width: 6px;
+  margin-left: 0;
   cursor: col-resize;
-  background: #ececec;
+  z-index: 1;
+  background: transparent;
   transition: background 0.15s;
 }
-.gantt-resizer:hover,
-.gantt-wrapper.resizing .gantt-resizer {
+.grid-resizer:hover,
+.gantt-host.resizing .grid-resizer {
   background: #3f8cff;
 }
-/* 拖拽期间：禁用文本选中；两块区域 pointer-events 置空，
-   防止光标划过 gantt 内部 iframe（resize watcher）时 mousemove 丢失 */
-.gantt-wrapper.resizing {
-  cursor: col-resize;
+.gantt-host.resizing {
   user-select: none;
 }
-.gantt-wrapper.resizing .gantt-table,
-.gantt-wrapper.resizing .gantt-timeline {
-  pointer-events: none;
-}
 
-/* 表头高度对齐 gantt 刻度区（scale_height） */
-.gantt-table .el-table th {
-  height: var(--g-scale-h);
-  padding: 0;
-  box-sizing: border-box;
+/* 操作列按钮 */
+.gantt-ops-btn {
+  border: none;
+  background: transparent;
+  color: #3f8cff;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 4px;
 }
-.gantt-table .el-table th > .cell {
-  line-height: calc(var(--g-scale-h) - 1px); /* 减 1px 底边框 */
-}
-
-/* 表格行高与 gantt row_height 严格对齐：
-   td 默认 content-box，height + 1px 边框会逐行漂移，必须 border-box */
-.gantt-table .el-table__row td {
-  height: var(--g-row-h);
-  padding-top: 0;
-  padding-bottom: 0;
-  box-sizing: border-box;
-}
-.proj-name { font-weight: 600; }
-.danger-btn.el-button--text { color: #f56c6c; }
+.gantt-ops-btn:hover { text-decoration: underline; }
+.gantt-ops-btn.ops-remove { color: #f56c6c; }
 
 /* 周末底色 / 今天列高亮 */
 .gantt-wrapper .weekend { background-color: #f4f6f9; }
