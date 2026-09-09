@@ -1,7 +1,6 @@
 {
   "name": "vue2-ganttify",
   "version": "0.1.0",
-  "private": true,
   "description": "DHTMLX Gantt(社区版/MIT) × ElementUI el-table × Vue 2.6 甘特图组件",
   "license": "MIT",
   "keywords": [
@@ -46,5 +45,10 @@
     "> 1%",
     "last 2 versions",
     "not dead"
-  ]
+  ],
+  "author": "bin-ran (https://github.com/bin-ran)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bin-ran/vue2-ganttify.git"
+  }
 }
