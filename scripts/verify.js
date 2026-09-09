@@ -5,7 +5,13 @@
  * 用法：先起静态服务（dist → 8129），node verify.js；失败 exit 2
  */
 const puppeteer = require('puppeteer-core')
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+const fs = require('fs')
+// Chrome 可执行文件解析：CHROME_PATH 环境变量优先，否则探测常见安装位
+const CHROME = process.env.CHROME_PATH ||
+  ['C:/Program Files/Google/Chrome/Application/chrome.exe',
+   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+   process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe'
+  ].find((p) => p && fs.existsSync(p))
 
 ;(async () => {
   const browser = await puppeteer.launch({
@@ -159,7 +165,7 @@ const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
   console.log(`== 纵向同步 == ${JSON.stringify(scroll)} -> ${okScroll ? 'PASS' : 'FAIL'}`)
 
   // ---- 截图存档 ----
-  await page.screenshot({ path: 'D:/tmp/gantt-verify/shot.png' })
+  await page.screenshot({ path: 'shot.png' })
 
   if (!okHeader || !okRows || !okTree || !okCells || !okOps || !okDrag || !okNoLinks || !okRange || !okScroll || errors.length) {
     console.log('== 页面错误 ==\n' + (errors.join('\n') || 'none'))

@@ -1,7 +1,7 @@
 # scripts/ — 回归验证脚本
 
-两个 puppeteer 脚本与项目验证基建的源码副本。**运行时环境**在 `D:/tmp/gantt-verify/`
-（临时目录，含 node_modules；丢失时按下文重建，脚本从本目录拷回）。
+两个 puppeteer 回归脚本（源码正本）。运行时需要一个装了 `puppeteer-core` 的工作目录
+（下文以 `<verify-dir>` 指代，放哪都行）。
 
 ## 脚本
 
@@ -12,34 +12,35 @@
 
 断言失败 `process.exit(2)`；控制台报错也会判失败。
 
-## 环境重建（若 D:/tmp/gantt-verify 丢失）
+## 环境搭建
 
 ```bash
-mkdir -p /d/tmp/gantt-verify && cd /d/tmp/gantt-verify
+mkdir -p <verify-dir> && cd <verify-dir>
 npm init -y && npm i puppeteer-core
 # 拷入本目录两个脚本
-cp /d/pi/dhtmlx-gantt-vue2-demo/scripts/*.js .
+cp <repo>/scripts/*.js .
 ```
 
 前置条件：
-- 本机 Chrome 位于 `C:/Program Files/Google/Chrome/Application/chrome.exe`
-  （脚本内 `executablePath` 硬编码，路径不同需改）
-- 消费工程 `D:/tmp/lib-consumer`（webpack5 + vue-loader15，安装 tarball 的干净消费方；
-  丢失时参考仓库 AGENTS.md 第 5 节重建）
+
+- Chrome：脚本按 `CHROME_PATH` 环境变量 → 常见安装位（Program Files / LocalAppData）
+  的顺序解析；都不满足时设置 `CHROME_PATH` 指向 chrome.exe
+- 消费工程 `<consumer-dir>`（webpack5 + vue-loader15，安装 tarball 的干净消费方；
+  结构参考仓库 AGENTS.md 第 5 节）
 
 ## 运行
 
 ```bash
 # 1) 起静态服务（python 比 npx http-server 快且稳；后台进程易随 shell 退出被杀，尽量同会话内跑完）
-python -m http.server 8129 --bind 127.0.0.1 --directory "D:/pi/dhtmlx-gantt-vue2-demo/dist" &
-python -m http.server 8130 --bind 127.0.0.1 --directory "D:/tmp/lib-consumer/dist" &
+python -m http.server 8129 --bind 127.0.0.1 --directory <repo>/dist &
+python -m http.server 8130 --bind 127.0.0.1 --directory <consumer-dir>/dist &
 
 # 2) 跑断言
-cd /d/tmp/gantt-verify
+cd <verify-dir>
 node verify.js
 node consumer-generic-verify.js
 
 # 3) 清理
-netstat -ano | grep LISTENING | grep ":8129 "
+netstat -ano | grep ":8129 "
 taskkill //PID <pid> //T //F   # 8130 同理；//T 因为 PID 可能是子进程
 ```

@@ -87,13 +87,13 @@ npm run build:lib
 npm pack   # → vue2-ganttify-0.1.0.tgz
 ```
 
-消费工程验证（D:/tmp/lib-consumer，webpack5+vue-loader15 干净工程）：
+消费工程验证（`<consumer-dir>`，webpack5+vue-loader15 干净工程）：
 
 ```bash
 # ⚠️ 关键坑：file:/tarball 内容变了 npm install 不会重新解包，必须手动：
 rm -rf node_modules/vue2-ganttify
 mkdir -p node_modules/vue2-ganttify
-tar -xzf /d/pi/dhtmlx-gantt-vue2-demo/vue2-ganttify-0.1.0.tgz \
+tar -xzf <repo>/vue2-ganttify-0.1.0.tgz \
     -C node_modules/vue2-ganttify --strip-components=1
 npm run build
 ```
@@ -102,8 +102,8 @@ puppeteer 回归（环境搭建见 scripts/README.md）：
 
 ```bash
 # 起静态服务（python http.server 比 npx http-server 快且稳），跑完 taskkill 清理
-python -m http.server 8129 --bind 127.0.0.1 --directory "D:/pi/dhtmlx-gantt-vue2-demo/dist" &
-python -m http.server 8130 --bind 127.0.0.1 --directory "D:/tmp/lib-consumer/dist" &
+python -m http.server 8129 --bind 127.0.0.1 --directory <repo>/dist &
+python -m http.server 8130 --bind 127.0.0.1 --directory <consumer-dir>/dist &
 node verify.js                    # demo，端口 8129，exit 2=失败
 node consumer-generic-verify.js   # 消费工程，端口 8130
 ```
@@ -175,6 +175,6 @@ feab1f9 feat: 时间轴两侧留白，修复拖到数据边界被顶住
   自绘分割条拖宽、季/月/日缩放、今日高亮、周末底色、深色主题、按住空白平移、
   fields 映射、自定义字段透传、columns 自定义列、时间轴留白
 - 待办：本改版尚未提交（等用户指示）；README/AGENTS/scripts 文档已同步新架构
-- scripts/ 下两个验证脚本的运行时副本在 D:/tmp/gantt-verify（含 puppeteer-core 依赖），
-  D:/tmp/lib-consumer 为消费工程——**两者都在临时目录，丢失时按 scripts/README.md 重建**，
-  脚本本体以本仓库 scripts/ 为准（注意：仓库内副本需与临时目录运行版保持同步）
+- scripts/ 下两个验证脚本的运行时副本建议放临时工作目录（含 puppeteer-core 依赖），
+  消费工程同理——**都在仓库外，丢失时按 scripts/README.md 重建**，
+  脚本本体以本仓库 scripts/ 为准（注意：仓库内副本需与运行版保持同步）

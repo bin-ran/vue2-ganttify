@@ -5,7 +5,13 @@
  *       操作列自定义动作 handler（透传字段可读）、双击事件、任务条、控制台零报错
  */
 const puppeteer = require('puppeteer-core')
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+const fs = require('fs')
+// Chrome 可执行文件解析：CHROME_PATH 环境变量优先，否则探测常见安装位
+const CHROME = process.env.CHROME_PATH ||
+  ['C:/Program Files/Google/Chrome/Application/chrome.exe',
+   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+   process.env.LOCALAPPDATA + '/Google/Chrome/Application/chrome.exe'
+  ].find((p) => p && fs.existsSync(p))
 
 ;(async () => {
   const browser = await puppeteer.launch({
